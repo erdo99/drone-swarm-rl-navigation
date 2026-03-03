@@ -1,9 +1,5 @@
-# Model & log dosyaları (best model ve vec_normalize hariç)
-models_hybrid_2/*
-!models_hybrid_2/best/
-models_hybrid_2/best/*
-!models_hybrid_2/best/best_model.zip
-!models_hybrid_2/vec_normalize.pkl
+# Model & log dosyaları
+models_hybrid_2/
 logs_hybrid_2/
 
 # Python
