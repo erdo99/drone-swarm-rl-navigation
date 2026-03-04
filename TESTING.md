@@ -75,7 +75,19 @@ Bu grafikte her stage’in başında reward’ın sıfırın çok altına düşt
 
 ![Staged PPO eval/mean_reward](pictures/staged_training_eval_mean_reward.png)
 
-Karşılaştırma için, nihai tek-mod rastgele eğitim koşusunun `eval/mean_reward` grafiği de aşağıda verilmiştir:
+### Merkezi vs. merkezî-olmayan (decentralized) eğitim
+
+Ayrı bir projede, her drone’un kontrolünün daha **merkezî-olmayan** bir yapıda (daha fazla serbestlik, daha zengin gözlem/aksiyon uzayı) ele alındığı bir PPO deneyi de yapılmıştır. Bu senaryoda:
+
+- Her birimin daha yerel gözleme dayanması,
+- Karar veren yapıların sayısının ve toplam parametre sayısının artması,
+- Ortamın diğer agent’ların politikalarına göre **daha non-stationary** hale gelmesi
+
+nedenleriyle eğitim süreci, bu repodaki merkezî PPO yapısına göre belirgin biçimde daha zor ve dalgalı olmuştur. İlgili eğitimin `eval/mean_reward` grafiği şu şekildedir:
+
+![Decentralized PPO eval/mean_reward](pictures/decentralized_training_eval_mean_reward.png)
+
+Karşılaştırma için, bu repodaki nihai tek-mod rastgele eğitim koşusunun `eval/mean_reward` grafiği de aşağıda verilmiştir:
 
 ![Final PPO eval/mean_reward](pictures/final_training_eval_mean_reward.png)
 
