@@ -54,6 +54,11 @@ Ana hedef: 4 drone sürüsünün engellerden kaçınarak hedefe gitmesi.
 
 ## Hangi Yaklaşımları Denedim? Hangisi İşe Yaramadı?
 
+### Ortam yapısı
+
+- **İlk tasarım:** Drone sürüsü her seferinde aynı sabit noktadan başlıyor, hedef de sabit bir konumda duruyordu. Engeller bu sabit start–target hattı etrafında rastgele yerleştiriliyordu. Bu yapı, modeli belirli bir “koridoru” ezberlemeye teşvik etti; ajanlar, genel bir navigasyon stratejisi yerine bu sabit senaryoya özel yollar öğrendi.
+- **Güncel tasarım:** Başlangıç ve hedef konumları her episode’da harita üzerinde rastgele seçiliyor ve aralarındaki mesafe için minimum bir alt sınır uygulanıyor. Engeller de bu yeni start–target çiftine göre yeniden örnekleniyor. Böylece model, sadece “sol alt → sağ üst” gibi tek bir rotaya değil, haritanın farklı bölgelerinde, farklı yönlerde ve farklı engel düzenlerinde genelleme yapmak zorunda kalıyor.
+
 ### Observation tasarımı
 - **Denenen:** Başta sadece merkez + hedef. Engel bilgisi yoktu.
 - **Sonuç:** Engelden kaçınmayı öğrenemedi, sık çarpışıyordu.
@@ -196,3 +201,16 @@ Bu projede kullanılan son mimari, Stable-Baselines3 PPO’nun **MLP tabanlı po
 2. **Reward logging:** Ödül bileşenlerini (mesafe, çarpışma, formation) ayrı ayrı log’lamak; hangi bileşenin baskın olduğunu görmek.
 3. **Daha erken test:** İlk 100K step’te bile hard course’ta periyodik test; overfitting veya yanlış yöne gidişi erkenden fark etmek.
 4. **Ray sayısı:** 4 ray yerine 8 ray denemek; daha iyi engel algılama sağlayabilir.
+
+---
+
+## İleriki Çalışmalar İçin Öneriler
+
+Bu projede tek bir PPO politikası, tüm start–target konfigürasyonları ve yönler için ortak bir çözüm öğrenmeye çalışıyor. İleride, bu karmaşık problemi daha yönetilebilir alt problemlere bölmek için **yüksek seviyeli bir “yön/hattı seçici” (router) katmanı** düşünmek faydalı olabilir:
+
+- Harita, örneğin 8 bölge/konfigürasyona ayrılabilir: sol üst ↔ sağ alt, sağ üst ↔ sol alt, orta üst ↔ orta alt, vb.
+- Üstte, sadece **hangi bölgesel senaryoda olduğuna** karar veren küçük bir politika (veya basit kural tabanlı router) bulunur.
+- Altta ise her bölge için ayrı veya paylaşılmış ama direction-aware alt politikalar (sub-policy) eğitilir; bu alt politikalar, kendi senaryolarında daha dar bir dağılımı öğrenmek zorunda oldukları için PPO açısından daha kolay optimize edilebilir.
+- Bu yapının overfit’e kaçmaması için, her bölge içinde hedef noktası tek bir sabit koordinat değil, o bölge etrafındaki bir alan içinde rastgele seçilmelidir (bölge içi rastgelelik korunur).
+
+Böyle bir hiyerarşik/pieces-wise yaklaşım, özellikle daha büyük haritalarda ve çok daha uzun rotalarda **“önce hangi koridor/yön, sonra ince manevra”** ayrımını netleştirerek hem eğitim süresini kısaltabilir hem de genelleme kabiliyetini artırabilir.
