@@ -71,6 +71,10 @@ Stage’li eğitimde TensorBoard’daki `eval/mean_reward` grafiği şu davranı
 
 Bu grafikte her stage’in başında reward’ın sıfırın çok altına düştüğü, ardından yeniden toparlandığı açıkça görülmektedir.
 
+Örnek bir koşunun TensorBoard çıktısı aşağıdaki şekilde kaydedilmiştir:
+
+![Staged PPO eval/mean_reward](pictures/staged_training_eval_mean_reward.png)
+
 ### Sonuç ve tercih edilen yaklaşım
 
 - Aşamalı eğitim, her stage için tanımlanan başarı oranlarına ulaşabilmiştir; ancak stage geçişlerinde ciddi kararsızlıklar ve kısa süreli “unlearning” etkisi oluşmuştur.
