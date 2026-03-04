@@ -7,6 +7,7 @@ Her episode aynı layout, render ile izlenir.
 import argparse
 import os
 import sys
+import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -38,13 +39,29 @@ def to_screen(pos, gs):
     return int(pos[0] * CELL), int((gs - pos[1]) * CELL)
 
 
+def _parse_pos(s):
+    """'x,y' -> (float, float) veya None"""
+    if not s or not s.strip():
+        return None
+    parts = s.strip().split(",")
+    if len(parts) != 2:
+        return None
+    try:
+        return (float(parts[0].strip()), float(parts[1].strip()))
+    except ValueError:
+        return None
+
+
 def run(model_path=None, vec_norm="models_hybrid_2/vec_normalize.pkl",
-        n_episodes=5, fps=8, swap_start_target=True):
+        n_episodes=5, fps=8, swap_start_target=True, start_pos=None, target_pos=None):
     gs, size = 50.0, int(50 * CELL)
+    custom_start = np.array(start_pos, dtype=np.float32) if start_pos else None
+    custom_target = np.array(target_pos, dtype=np.float32) if target_pos else None
     raw_env = DroneSwarmEnvHybrid2HardCourse(
         grid_size=gs, n_obstacles=len(HARD_OBSTACLES),
         wall_sliding=True, offset_scale=0.6, formation_coef=0.3, seed=42,
         swap_start_target=swap_start_target,
+        custom_start=custom_start, custom_target=custom_target,
     )
 
     model, wrapped, obs_vec, display_env = None, None, None, raw_env
@@ -54,6 +71,7 @@ def run(model_path=None, vec_norm="models_hybrid_2/vec_normalize.pkl",
                 grid_size=gs, n_obstacles=len(HARD_OBSTACLES),
                 formation_coef=0.3, wall_sliding=True, offset_scale=0.6, seed=42,
                 swap_start_target=swap_start_target,
+                custom_start=custom_start, custom_target=custom_target,
             ))
         wrapped = DummyVecEnv([_make_env])
         if vec_norm and os.path.exists(vec_norm):
@@ -78,7 +96,10 @@ def run(model_path=None, vec_norm="models_hybrid_2/vec_normalize.pkl",
     trail, max_trail = [], 80
     running = True
 
-    swap_txt = "SWAP (start=sağ üst, hedef=sol alt)" if swap_start_target else "NORMAL (start=sol alt, hedef=sağ üst)"
+    if start_pos is not None and target_pos is not None:
+        swap_txt = f"Özel: start={start_pos}, hedef={target_pos}"
+    else:
+        swap_txt = "SWAP (start=sağ üst, hedef=sol alt)" if swap_start_target else "NORMAL (start=sol alt, hedef=sağ üst)"
     print("=" * 50)
     print("  Zorlu Parkur - Pygame Görsel Test")
     print(f"  {swap_txt} | {len(HARD_OBSTACLES)} engel: hard_course_config.py")
@@ -161,7 +182,14 @@ if __name__ == "__main__":
     p.add_argument("--n_episodes", type=int, default=5)
     p.add_argument("--fps", type=int, default=8)
     p.add_argument("--no_swap", action="store_true", help="Start/hedef yer değiştirmesin (normal: sol alt -> sağ üst)")
+    p.add_argument("--start", type=str, default="", help="Başlangıç noktası 'x,y' (örn. 5,5). Verilirse --target da gerekir.")
+    p.add_argument("--target", type=str, default="", help="Hedef noktası 'x,y' (örn. 45,45)")
     args = p.parse_args()
+    start_pos = _parse_pos(args.start) if args.start else None
+    target_pos = _parse_pos(args.target) if args.target else None
+    if (start_pos is None) != (target_pos is None):
+        print("Uyarı: --start ve --target birlikte verilmeli. Config/swap kullanılıyor.")
+        start_pos = target_pos = None
     run(model_path=args.model, vec_norm=args.vec_norm,
         n_episodes=args.n_episodes, fps=args.fps,
-        swap_start_target=not args.no_swap)
+        swap_start_target=not args.no_swap, start_pos=start_pos, target_pos=target_pos)
