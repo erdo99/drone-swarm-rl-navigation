@@ -75,6 +75,10 @@ Bu grafikte her stage’in başında reward’ın sıfırın çok altına düşt
 
 ![Staged PPO eval/mean_reward](pictures/staged_training_eval_mean_reward.png)
 
+Karşılaştırma için, nihai tek-mod rastgele eğitim koşusunun `eval/mean_reward` grafiği de aşağıda verilmiştir:
+
+![Final PPO eval/mean_reward](pictures/final_training_eval_mean_reward.png)
+
 ### Sonuç ve tercih edilen yaklaşım
 
 - Aşamalı eğitim, her stage için tanımlanan başarı oranlarına ulaşabilmiştir; ancak stage geçişlerinde ciddi kararsızlıklar ve kısa süreli “unlearning” etkisi oluşmuştur.
