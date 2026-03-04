@@ -158,6 +158,47 @@ python evaluate.py --model models_hybrid_2/best/best_model --n_episodes 20
 
 ---
 
+## Hazır Modelleri Başkalarının Kullanması
+
+Repoda, eğitimden elde edilmiş hazır modeller paylaşılmaktadır:
+
+- `models_hybrid_2/best/best_model.zip` — En iyi değerlendirme skoruna sahip model
+- `models_hybrid_2/vec_normalize.pkl` — Observation/reward normalizasyon istatistikleri
+
+Bu modeli kendi bilgisayarınızda test etmek için:
+
+1. Depoyu klonlayın ve bağımlılıkları kurun:
+
+```bash
+git clone https://github.com/erdo99/drone-swarm-rl-navigation.git
+cd drone-swarm-rl-navigation
+pip install -r requirements.txt
+```
+
+2. Rastgele parkurda hazır modeli görselleştirin:
+
+```bash
+python visualize_pygame.py --model models_hybrid_2/best/best_model --n_episodes 10 --fps 8
+```
+
+3. Zorlu sabit parkurda test edin:
+
+```bash
+python test_hard_course_pygame.py --model models_hybrid_2/best/best_model --n_episodes 10 --fps 8
+```
+
+İsteğe bağlı olarak, zorlu parkurda başlangıç/hedef noktalarını terminalden parametre vererek özelleştirebilirsiniz:
+
+```bash
+python test_hard_course_pygame.py ^
+  --model models_hybrid_2/best/best_model ^
+  --start 10,10 --target 40,40 --n_episodes 5 --fps 8
+```
+
+Bu komut, `hard_course_config.py`’deki sabit layout’u korurken sadece start/target koordinatlarını değiştirir; böylece farklı senaryolarda aynı eğitilmiş modeli deneyebilirsiniz.
+
+---
+
 ## Model ve Log Konumları
 
 | Konum | Açıklama |
