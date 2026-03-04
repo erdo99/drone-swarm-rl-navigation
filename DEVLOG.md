@@ -15,18 +15,7 @@ klasik tek-agent navigasyon görevlerine göre anlamlı biçimde daha yüksektir
 
 Bu karmaşıklığı yönetebilmek için, aşağıda ayrıntılı olarak açıklanan bazı **basitleştirici kabuller** yapılmıştır (merkezi politika, ideal formasyon, iletişimsiz gecikme olmaması, vb.). Bu kabuller, problemi yapay olarak kolaylaştırmaktan çok, odaklanmak istediğimiz asıl özelliği — **çoklu agent koordinasyonu ve engel kaçınma** — öne çıkarmak amacıyla seçilmiştir.
 
-Problem çözümü sırasında farklı RL mimarileri, eğitim stratejileri ve giriş/çıkış tasarımları da araştırılmıştır:
-
-- PPO yerine **DQN/Duelling DQN** tabanlı yaklaşımlar,
-- Girişte engel bilgisini daha gerçekçi temsil etmek için 360°’yi 8 sektöre bölen farklı sensör (ray) düzenleri,
-- Geçmiş hareketlerden faydalanmak için **LSTM tabanlı** politikalara geçiş denemeleri,
-- Aksiyon tarafında hem **merkezi hız + offset** yaklaşımı hem de her drone için tamamen bağımsız hız çıktıları,
-- Sürü üyelerini tek tek eğitmek için MARL/MARL benzeri (MARL/MARL-VL benzeri) fikirler,
-- Eğitim zorluğunu kademeli artırmak için **stage’li (curriculum) senaryolar**: önce az engelli ve daha kısa mesafeli ortamlar, ardından daha fazla engel ve tam rastgele başlangıç/hedef içeren senaryolar. Nihai sürümde, genelleme kabiliyeti daha iyi olduğu için tek modda “tam rastgele” eğitim tercih edilmiştir; ancak curriculum fikri, daha büyük haritalar ve daha karmaşık görevler için potansiyel bir geliştirme alanı olarak açık bırakılmıştır.
-
-Bu denemelerin ayrıntılı kıyaslaması ve gözlemler, bu dosyanın ilerleyen bölümlerinde özetlenecektir. Aynı bölümde, bu problem için daha iyi olabileceğini düşündüğüm mimari alternatifler ve olası gelecek çalışmalar (ör. daha zengin sensör setleri, iletişim gecikmesi modelleme, daha büyük haritalar, curriculum learning) de tartışılacaktır.
-
----
+Problem çözümü sırasında farklı RL mimarileri, eğitim stratejileri ve giriş/çıkış tasarımları da araştırılmıştır. Bunların detayları, aşağıdaki “Hangi Yaklaşımları Denedim?” ve “Sinir Ağı Mimarileri Üzerine Notlar” bölümlerinde özetlenmiştir.
 
 ## Başta Yapılan Kabuller
 
@@ -83,6 +72,44 @@ Ana hedef: 4 drone sürüsünün engellerden kaçınarak hedefe gitmesi.
 - **İlk deneme:** Sadece hedefe mesafe. Formation bozuluyordu.
 - **İkinci deneme:** Formation cezası çok yüksek — drone’lar çok sıkı kümeleniyordu, engelden kaçınamıyordu.
 - **Mevcut:** `formation_coef=0.3` — dengeli. `-dist*0.01 - collision*10 - formation_err*0.3`, hedefe varma +1000.
+
+---
+
+## Sinir Ağı Mimarileri Üzerine Notlar
+
+Bu projede kullanılan son mimari, Stable-Baselines3 PPO’nun **MLP tabanlı politikası**dır; gövde yapısı `[256, 256]` olacak şekilde seçilmiştir. Buna giden yolda, farklı projelerde ve senaryolarda çeşitli ağ mimarileri denendi:
+
+### PPO tabanlı MLP politikalar
+
+- **[256, 256, 128] MLP (en yaygın yapı):**  
+  - Çeşitli drone projelerinde (ör. Drone-New_4, Drone-New-5, Drone-New-8/9/10/11, Drone_New-6, Drone-New-15-ppo-discrete) hem policy hem value için ortak veya ayrık head’lerle kullanıldı.  
+  - Daha fazla katman ve nöron sayısı sayesinde karmaşık davranışları temsil edebilse de, eğitim kararlılığı ve tuning maliyeti arttı; bazı senaryolarda overfit’e ve hassas hyperparametre bağımlılığına yol açtı.
+- **Daha küçük MLP’ler ([128, 128, 64], [64, 64]):**  
+  - Daha küçük observation uzayına sahip deneysel ortamlarda ve hızlı “smoke test” script’lerinde kullanıldı.  
+  - Hafif olmalarına rağmen, bu projedeki gibi yüksek boyutlu observation + çoklu drone davranışı için genellikle yetersiz kaldılar (hedef ve engel kombinasyonlarını tam öğrenemediler).
+- **[256, 256] MLP (bu projedeki yapı):**  
+  - Bu çözüm, kapasite ve kararlılık arasında pratik bir denge sağladığı için tercih edildi.  
+  - Hem eğitim süresi makul kaldı hem de reward eğrileri, daha derin mimarilere göre daha öngörülebilir bir şekilde ilerledi.
+
+### LSTM + MLP politikalar
+
+- Bazı önceki denemelerde, geçmiş hareketlerden öğrenebilmek için 256 boyutlu LSTM katmanı + `[256, 256]` MLP gövdesi kullanıldı.  
+- Bu yapı, özellikle kısmi gözlem (partial observability) içeren senaryolarda faydalı olsa da, bu projede kullanılan observation yapısı (merkez, hız, engel ray’ları, vs.) zaten anlık durumu yeterince temsil ettiği için ek karmaşıklığa gerek duyulmadı.
+
+### DQN / DDQN mimarileri
+
+- **Dueling DQN:**  
+  - Obs → 256 → 256 → 128 gövde, ardından value ve advantage stream’leri (her biri 128 → 128 → output) içeren yapılar denendi.  
+  - Ayrık aksiyon uzayı için makul sonuçlar verse de, bu projede ihtiyaç duyulan **sürekli / ince ayarlı kontrol** için PPO + continuous action uzayı daha uygun bulundu.
+- **DDQN (256 tabanlı MLP):**  
+  - Obs → 256 → 256 → 128 → action_dim yapısı ile discrete kontrol denemeleri yapıldı; ancak yine continuous kontrol gereksinimi ve sürü koordinasyonu nedeniyle ana çözüm olarak tercih edilmedi.
+
+### Daha karmaşık özel mimariler
+
+- Bazı projelerde özel feature extractor’lar (ör. toplam feature_dim ≈ 176, ardından actor/critic head’lerde [256, 256, 128, 64]) kullanıldı.  
+- Bu mimariler temsil gücü açısından güçlü olsa da, tuning maliyeti yüksek ve davranış analizi daha zordu; bu case study’de odak noktası **ortam tasarımı + reward + kontrol mimarisi** olduğu için, daha sade bir MLP yapısı tercih edildi.
+
+**Sonuç:** Bu proje özelinde `[256, 256]` MLP’li PPO politikası, hem önceki deneyimlerden gelen bilgiye dayanarak hem de pratik gözlemlerle **“yeterince güçlü ama yönetilebilir karmaşıklıkta”** bir tercih olarak belirlendi. Daha büyük haritalar veya daha zengin sensör setleri hedeflendiğinde, yukarıda bahsedilen daha derin veya LSTM’li mimariler yeniden değerlendirilebilir.
 
 ---
 
