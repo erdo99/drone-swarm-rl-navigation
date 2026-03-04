@@ -150,6 +150,25 @@ python test_hard_course_pygame.py --model models_hybrid_2/best/best_model --n_ep
 python test_hard_course_pygame.py --model models_hybrid_2/best/best_model --no_swap   # Normal yön (sol alt → sağ üst)
 ```
 
+Kendi sabit parkurunuzu (engel konumları + start/target) tanımlamak için `hard_course_editor.py` script'ini kullanabilirsiniz:
+
+```bash
+python hard_course_editor.py
+```
+
+- Sol tık: yeni engel ekler  
+- Sağ tık: son eklenen engeli siler  
+- `S` tuşu: güncel engel konumlarını ve start/target bilgisini `hard_course_config.py` içine yazar  
+- `ESC`: çıkış
+
+`hard_course_config.py` güncellendikten sonra, aynı **hazır modeli** yeni parkurunuzda test etmek için tekrar:
+
+```bash
+python test_hard_course_pygame.py --model models_hybrid_2/best/best_model --n_episodes 5 --fps 8
+```
+
+komutunu çalıştırmanız yeterlidir.
+
 ### 6. Değerlendirme (Headless)
 
 ```bash
