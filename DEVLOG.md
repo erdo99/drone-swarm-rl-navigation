@@ -113,6 +113,16 @@ Toplam anlık ödül:
 r = r_{\text{dist}} + r_{\text{collision}} + r_{\text{step}} + r_{\text{form}} + r_{\text{success}} + r_{\text{heavy\_collision}}
 \]
 
+### İlk modeller ve davranışsal düzeltmeler
+
+- **Tek “vücut” benzetimi ve durup kalma sorunu:** İlk modellerde sürü, tek bir büyük cisim gibi düşünülen basit bir yapı ile eğitildi. Yüksek çarpışma cezası nedeniyle ajan, engelleri gördüğünde belirli bir noktaya kadar ilerleyip sonra tamamen durma eğilimi gösterdi; “hiç hareket etmemek” çarpışmaktan daha az maliyetliydi.
+- **Sabit konum cezası ve titreme davranışı:** Bunu çözmek için konum olarak sabit kalmaya doğrudan ceza eklendi. Ancak bu kez ajan, sabit kalmamak için ekranda titreme (çok küçük ileri–geri hareketler) benzeri davranışlar sergilemeye başladı.
+- **Zaman eşiği ve hedef ödülünün güçlendirilmesi:** Titremeyi engellemek için, “aynı konumda kalma” cezası yalnızca pozisyon ≈3 saniye boyunca anlamlı biçimde değişmediğinde uygulanacak şekilde yeniden tanımlandı. Aynı zamanda hedefe varış ödülü 10 kat artırılarak, ajanın “hedefe varmak” davranışının göreli önemi yükseltildi.
+- **Çarpışma sonrası episode’un hemen bitmesi:** Erken sürümlerde çarpışmalar episode’u hemen sonlandırdığı için, ajan engellerle ilgili yeterince deneyim toplayamıyor ve uzun vadede sağlıklı kaçınma stratejileri öğrenemiyordu.
+- **Geri sekme (bounce) ve çarpışma sonrası öğrenme:** Bu nedenle, çarpışma anında yüksek ceza verilmeye devam edilip, ancak episode sonlandırılmayacak şekilde bir “geri sekme” davranışı eklendi. Drone’lar çarpışma sonrası yavaşlayıp geri itilseler de, episode devam ettiği için engellerden kaçınmayı aktif olarak öğrenebiliyorlar.
+- **Stage’li yapı ve pratikteki sorunu:** Bir aşamada, stage’li eğitim kullanarak önce yalnızca birlikte uçma/hedefe gitme, sonraki stage’lerde engellerden kaçma öğretme fikri denendi. Ancak bazı stage’lerde uzun süre hiç engel temasının görülmemesi, sonradan eklenecek kaçınma davranışının yeterince örnek görememesine ve toplam öğrenmeye “balta vurmasına” neden oldu.
+- **Güncel denge:** Mevcut tasarımda ajan, hem engellere temas etmemeyi hem de hedefe yönelmeyi **aynı eğitim akışı içinde** öğreniyor. Ortak hız bileşeni sayesinde sürünün birlikte hareket etmesi görece kolay öğrenilirken, per-drone offset’ler engellerin etrafından dolaşma ve formasyonu koruma davranışlarını ince ayar düzeyinde mümkün kılıyor.
+
 ---
 
 ## Sinir Ağı Mimarileri Üzerine Notlar
