@@ -4,6 +4,22 @@ Bu dosya projenin geliştirme sürecini kronolojik olarak belgeler. Kararlar, de
 
 ---
 
+## Başta Yapılan Kabuller
+
+Proje kapsamında aşağıdaki kabuller benimsenmiştir; mimari ve giriş/çıkış parametreleri bu kabullere göre tasarlanmıştır.
+
+### Merkezi politika ve sürü koordinasyonu
+
+- **Tek merkezi sinir ağı (PPO):** Tüm sürü için tek bir politika (policy) eğitilir. Bu tercih, drone’lar arasında **eşler arası (peer-to-peer) iletişim** olduğu ve her birimin kendi sensör verileriyle sürü merkezini (barycenter) hesaplayıp karar alabileceği varsayımına dayanır.
+- **Hibrit aksiyon yapısı:** Her drone için ortak bir hız bileşeni ile bireysel bir hız düzeltmesi (offset) kullanılır. Politika çıktısında yalnızca bu offset’lerin uygulanacağı; ortak hızın sürü koordinasyonu ile zaten belirlendiği kabul edilir.
+- **İletişim gecikmesi:** Sürü içi bilgi paylaşımında iletişimden kaynaklı gecikme veya bant genişliği kaybı **yok** kabul edilir; gözlemler anlık ve senkron sayılır.
+
+### Algılama ve gözlem uzayı
+
+- **Engel konum bilgisi:** Gerçek uygulamada drone’ların **lidar** ve **radar** benzeri sensörlerle engellerin konum/mesafe bilgisini elde edebileceği varsayılır. Buna uygun olarak gözlem uzayında her drone için belirli yönlerde **ray tabanlı mesafe** (engel/duvar uzaklığı) girişleri kullanılmıştır; böylece simülasyon, gerçek sensör çıktılarına indirgenmiş bir temsil ile uyumlu tutulur.
+
+---
+
 ## Problemi Nasıl Parçaladım?
 
 Ana hedef: 4 drone sürüsünün engellerden kaçınarak hedefe gitmesi.
