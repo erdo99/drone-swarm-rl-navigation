@@ -78,40 +78,27 @@ Ana hedef: 4 drone sürüsünün engellerden kaçınarak hedefe gitmesi.
 - **İkinci deneme:** Formation cezası çok yüksek — drone’lar çok sıkı kümeleniyordu, engelden kaçınamıyordu.
 - **Mevcut:** `formation_coef=0.3` — dengeli. `-dist*0.01 - collision*10 - formation_err*0.3`, hedefe varma +1000.
 
-Mevcut ödül fonksiyonu, kodda yaklaşık olarak şu şekilde tanımlıdır:
+Mevcut ödül fonksiyonu, kodda yaklaşık olarak şu şekilde tanımlıdır (sadeleştirilmiş gösterimle):
 
 - **Hedefe mesafe cezası:**  
-  \[
-  r_{\text{dist}} = -0.01 \cdot \lVert center - target \rVert_2
-  \]
+  `r_dist = -0.01 * ||center - target||`
 - **Çarpışma cezası:**  
-  \[
-  r_{\text{collision}} = -10.0 \cdot N_{\text{collisions}}
-  \]
+  `r_collision = -10.0 * N_collisions`  
   Her drone–engel veya drone–duvar çarpışması için ek ceza.
 - **Zaman cezası:**  
-  \[
-  r_{\text{step}} = -0.01
-  \]
+  `r_step = -0.01`  
   Her adımda küçük negatif ödül; daha kısa sürede hedefe gitmeye teşvik eder.
 - **Formation cezası:**  
-  \[
-  r_{\text{form}} = -\text{formation\_coef} \cdot \lVert positions - ideal\_positions \rVert_2,\quad \text{formation\_coef} = 0.3
-  \]
+  `r_form = -formation_coef * ||positions - ideal_positions||`  (varsayılan `formation_coef = 0.3`)  
   Sürü ideal kare formasyonundan ne kadar saparsa ceza artar.
 - **Başarı ödülü (hedefe varış):**  
-  \[
-  r_{\text{success}} = +1000 \quad (\lVert center - target \rVert_2 < 3.0)
-  \]
+  `r_success = +1000`  (merkez–hedef mesafesi `< 3.0` olduğunda)
 - **Ağır çarpışma cezası (episode sonu):**  
-  \[
-  r_{\text{heavy\_collision}} = -20.0 \quad (N_{\text{collisions}} \ge 2)
-  \]
+  `r_heavy_collision = -20.0`  (aynı anda `N_collisions >= 2` ise)
 
 Toplam anlık ödül:
-\[
-r = r_{\text{dist}} + r_{\text{collision}} + r_{\text{step}} + r_{\text{form}} + r_{\text{success}} + r_{\text{heavy\_collision}}
-\]
+
+`r = r_dist + r_collision + r_step + r_form + r_success + r_heavy_collision`
 
 ### İlk modeller ve davranışsal düzeltmeler
 
