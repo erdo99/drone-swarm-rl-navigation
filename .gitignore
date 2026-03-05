@@ -4,7 +4,9 @@ models_hybrid_2/*
 !models_hybrid_2/best/
 models_hybrid_2/best/*
 !models_hybrid_2/best/best_model.zip
+!models_hybrid_2/ppo_hybrid_2_final.zip
 !models_hybrid_2/vec_normalize.pkl
+models_hybrid_old/
 logs_hybrid_2/
 
 # Python

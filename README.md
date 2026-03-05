@@ -222,8 +222,8 @@ Bu komut, `hard_course_config.py`’deki sabit layout’u korurken sadece start/
 
 | Konum | Açıklama |
 |-------|----------|
-| `models_hybrid_2/best/best_model.zip` | En iyi değerlendirme skoruna sahip model |
-| `models_hybrid_2/ppo_hybrid_2_final.zip` | Eğitimin sonundaki model |
+| `models_hybrid_2/best/best_model.zip` | Değerlendirme metriklerine göre en iyi skor üreten checkpoint |
+| `models_hybrid_2/ppo_hybrid_2_final.zip` | Eğitimin sonundaki model (pratikte daha dengeli davranış; testlerde bunu kullanmanız önerilir) |
 | `models_hybrid_2/vec_normalize.pkl` | Observation/reward normalizasyon istatistikleri |
 | `models_hybrid_2/checkpoints/` | Ara checkpoint’ler |
 | `logs_hybrid_2/tensorboard/` | TensorBoard logları |
