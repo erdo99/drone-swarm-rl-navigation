@@ -37,6 +37,10 @@ class DroneSwarmEnvHybrid2(gym.Env):
         render_mode: Optional[str] = None,
         wall_sliding: bool = True,
         formation_coef: float = 0.3,
+        proximity_threshold: float = 2.0,
+        proximity_penalty_coef: float = 0.1,
+        min_drone_separation: float = 1.5,
+        min_drone_separation_penalty: float = 15.0,
         min_start_target_dist: float = 15.0,
         seed: Optional[int] = None,
     ):
@@ -51,6 +55,10 @@ class DroneSwarmEnvHybrid2(gym.Env):
         self.render_mode = render_mode
         self.wall_sliding = wall_sliding
         self.formation_coef = formation_coef
+        self.proximity_threshold = proximity_threshold
+        self.proximity_penalty_coef = proximity_penalty_coef
+        self.min_drone_separation = min_drone_separation
+        self.min_drone_separation_penalty = min_drone_separation_penalty
         self.min_start_target_dist = min_start_target_dist
 
         self.action_space = spaces.Box(
@@ -211,6 +219,30 @@ class DroneSwarmEnvHybrid2(gym.Env):
                 new_pos[d], new_vel[d] = max_p, 0.0
         return new_pos, new_vel
 
+    def _proximity_penalty(self) -> float:
+        """Drone-drone yakınlık cezası: birbirine çok yaklaşınca mesafeye göre ceza."""
+        penalty = 0.0
+        thresh = self.proximity_threshold
+        coef = self.proximity_penalty_coef
+        for i in range(4):
+            for j in range(i + 1, 4):
+                d = float(np.linalg.norm(self.drone_positions[i] - self.drone_positions[j]))
+                if d < thresh:
+                    penalty += coef * (thresh - d)
+        return penalty
+
+    def _min_separation_penalty(self) -> float:
+        """İki drone min_drone_separation altına inerse ek ceza (iç içe girmeyi azaltır)."""
+        penalty = 0.0
+        min_sep = self.min_drone_separation
+        p_per_pair = self.min_drone_separation_penalty
+        for i in range(4):
+            for j in range(i + 1, 4):
+                d = float(np.linalg.norm(self.drone_positions[i] - self.drone_positions[j]))
+                if d < min_sep:
+                    penalty += p_per_pair
+        return penalty
+
     def _obstacle_ray_distances(self, drone_pos: np.ndarray, n_rays: int = 4) -> np.ndarray:
         angles = np.linspace(0, 2 * math.pi, n_rays, endpoint=False)
         dists = np.ones(n_rays, dtype=np.float32) * self.grid_size
@@ -252,6 +284,8 @@ class DroneSwarmEnvHybrid2(gym.Env):
         center = self.center_pos
         dist = float(np.linalg.norm(center - self.target_pos))
         reward = -dist * 0.01 - len(collisions) * 10.0 - 0.01
+        reward -= self._proximity_penalty()
+        reward -= self._min_separation_penalty()
         ideal = center + self.FORMATION_OFFSETS
         formation_err = np.linalg.norm(self.drone_positions - ideal)
         reward -= float(formation_err) * self.formation_coef

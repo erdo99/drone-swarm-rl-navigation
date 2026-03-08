@@ -16,13 +16,33 @@ sys.path.insert(0, _here)
 from env import DroneSwarmEnvHybrid2
 
 
-def make_env(n_obstacles=5, n_obstacles_range=None, wall_sliding=True, offset_scale=0.6, formation_coef=0.3, seed=0):
+def make_env(
+    n_obstacles=5,
+    n_obstacles_range=None,
+    wall_sliding=True,
+    offset_scale=0.6,
+    formation_coef=0.3,
+    proximity_threshold=2.0,
+    proximity_penalty_coef=0.1,
+    min_drone_separation=1.5,
+    min_drone_separation_penalty=15.0,
+    seed=0,
+):
     def _init():
         e = DroneSwarmEnvHybrid2(
-            grid_size=50.0, n_obstacles=n_obstacles,
+            grid_size=50.0,
+            n_obstacles=n_obstacles,
             n_obstacles_range=n_obstacles_range,
-            safety_radius=2.0, max_speed=2.0, offset_scale=offset_scale,
-            max_steps=500, wall_sliding=wall_sliding, formation_coef=formation_coef,
+            safety_radius=2.0,
+            max_speed=2.0,
+            offset_scale=offset_scale,
+            max_steps=500,
+            wall_sliding=wall_sliding,
+            formation_coef=formation_coef,
+            proximity_threshold=proximity_threshold,
+            proximity_penalty_coef=proximity_penalty_coef,
+            min_drone_separation=min_drone_separation,
+            min_drone_separation_penalty=min_drone_separation_penalty,
             seed=seed,
         )
         return Monitor(e)
@@ -49,6 +69,10 @@ def train(
     wall_sliding=True,
     offset_scale=0.6,
     formation_coef=0.3,
+    proximity_threshold=2.0,
+    proximity_penalty_coef=0.1,
+    min_drone_separation=1.5,
+    min_drone_separation_penalty=15.0,
     save_dir="./models_hybrid_2/",
     log_dir="./logs_hybrid_2/",
     eval_freq=25_000,
@@ -58,13 +82,23 @@ def train(
     os.makedirs(log_dir, exist_ok=True)
 
     train_env = DummyVecEnv([
-        make_env(n_obstacles, n_obstacles_range, wall_sliding, offset_scale, formation_coef, i)
+        make_env(
+            n_obstacles, n_obstacles_range, wall_sliding, offset_scale, formation_coef,
+            proximity_threshold, proximity_penalty_coef,
+            min_drone_separation, min_drone_separation_penalty,
+            i,
+        )
         for i in range(n_envs)
     ])
     train_env = VecNormalize(train_env, norm_obs=True, norm_reward=True, clip_obs=10.0)
 
     eval_env = DummyVecEnv([
-        make_env(n_obstacles, n_obstacles_range, wall_sliding, offset_scale, formation_coef, 42)
+        make_env(
+            n_obstacles, n_obstacles_range, wall_sliding, offset_scale, formation_coef,
+            proximity_threshold, proximity_penalty_coef,
+            min_drone_separation, min_drone_separation_penalty,
+            42,
+        )
     ])
     eval_env = VecNormalize(eval_env, norm_obs=True, norm_reward=False, clip_obs=10.0, training=False)
 
