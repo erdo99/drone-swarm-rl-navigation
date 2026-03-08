@@ -16,3 +16,5 @@ Bu klasöre kaydedilen demo videoları buraya koyun.
 3. Videoyu `test_hard_course_5ep_8fps.mp4` adıyla bu klasöre kaydedin.
 
 4. README.md'deki video linki bu dosya adına göre ayarlanmıştır.
+
+**Not:** Mevcut `test_hard_course_5ep_8fps.mp4` Hybrid2 + Proximity cezaları ile eğitilmiş model ile kaydedilmiştir (daha başarılı davranış).
