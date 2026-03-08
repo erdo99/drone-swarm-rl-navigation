@@ -46,3 +46,4 @@ env/
 # OS
 .DS_Store
 Thumbs.db
+videos/*_old.mp4
