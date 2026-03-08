@@ -2,7 +2,7 @@
 
 ## Proje Tanıtımı
 
-Bu proje, **PPO (Proximal Policy Optimization)** algoritması ile eğitilmiş dört droneden oluşan bir sürünün, engellerden kaçınarak hedef noktaya navigasyonunu sağlar. Gymnasium ortamında tanımlanan 50×50 grid haritada drone sürüsü hem oluşum (formation) halinde kalır hem de ortak hız + bireysel offset ile hareket eder.
+Bu proje, **PPO (Proximal Policy Optimization)** algoritması ile eğitilmiş dört droneden oluşan bir sürünün engellerden kaçınarak hedef noktaya navigasyonunu sağlar. Gymnasium ortamında tanımlanan 50×50 grid haritada drone sürüsü hem oluşum (formation) halinde kalır hem de ortak hız + bireysel offset ile hareket eder. Algoritma seçimi (PPO vs MAPPO vb.), centralized vs multi-agent tercihi ve parametre gerekçeleri için [DEVLOG.md](DEVLOG.md) dosyasına bakınız.
 
 **Özellikler:**
 - **Hybrid2 aksiyon yapısı:** 10 boyutlu aksiyon (ortak hız + per-drone offset)

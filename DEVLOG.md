@@ -17,13 +17,27 @@ Bu karmaşıklığı yönetebilmek için, aşağıda ayrıntılı olarak açıkl
 
 Problem çözümü sırasında farklı RL mimarileri, eğitim stratejileri ve giriş/çıkış tasarımları da araştırılmıştır. Bunların detayları, aşağıdaki “Hangi Yaklaşımları Denedim?” ve “Sinir Ağı Mimarileri Üzerine Notlar” bölümlerinde özetlenmiştir.
 
+## RL Algoritması Seçimi: PPO Neden? Alternatifler Neden Elendi?
+
+Bu projede **PPO (Proximal Policy Optimization)** seçildi. Alternatifler şöyle değerlendirildi:
+
+| Algoritma | Neden seçilmedi / elendi |
+|-----------|---------------------------|
+| **MAPPO** | Gözlem uzayı zaten merkezi (tüm sürü bilgisi tek obs vektöründe). Merkezi politika ile tüm aksiyonlar tek seferde üretiliyor; MAPPO'nun "decentralized execution" avantajı burada gerekmiyor. Ek kütüphane ve tuning; case study odak nedeniyle PPO yeterli. |
+| **SAC / TD3** | Rastgele başlangıç/hedef ortamında PPO daha stabil. SAC replay buffer farklı episode'lardan karışık örnek alacağı için davranış tutarlılığı PPO'da daha iyi bulundu. |
+| **A3C / A2C** | PPO daha stabil (clip + GAE); bu ortam için daha iyi sonuç. |
+| **DQN / DDQN** | **Sürekli aksiyon** gerekli; dar geçitlerde ince manevra için continuous kontrol şart. |
+| **QMIX / COMA** | Discrete action odaklı; bu projede continuous + merkezi politika daha uygun. |
+
+**Özet:** PPO sürekli aksiyon, merkezi politika ve SB3 ile uyumlu olduğu için seçildi. MAPPO denenseydi ilginç olurdu ama mevcut yapı zaten merkezi karar üretiyor.
+
 ## Başta Yapılan Kabuller
 
 Proje kapsamında aşağıdaki kabuller benimsenmiştir; mimari ve giriş/çıkış parametreleri bu kabullere göre tasarlanmıştır.
 
 ### Merkezi politika ve sürü koordinasyonu
 
-- **Tek merkezi sinir ağı (PPO):** Tüm sürü için tek bir politika (policy) eğitilir. Bu tercih, drone’lar arasında **eşler arası (peer-to-peer) iletişim** olduğu ve her birimin kendi sensör verileriyle sürü merkezini (barycenter) hesaplayıp karar alabileceği varsayımına dayanır.
+- **Merkezi politika (CTCE):** Tüm sürü için tek politika; merkez 10 boyutlu aksiyon üretir. Neden centralized? (1) Decentralized'da credit assignment zor; merkezde tüm obs tek vektörde, birlikte hareket doğrudan optimize edilir. (2) Hedef ve formation zaten merkez referanslı. (3) Sürü lideri veya ground station'da çalıştırılabilir. Drone'lar arasında iletişim olduğu varsayılır.
 - **Hibrit aksiyon yapısı:** Her drone için ortak bir hız bileşeni ile bireysel bir hız düzeltmesi (offset) kullanılır. Politika çıktısında yalnızca bu offset’lerin uygulanacağı; ortak hızın sürü koordinasyonu ile zaten belirlendiği kabul edilir.
 - **İletişim gecikmesi:** Sürü içi bilgi paylaşımında iletişimden kaynaklı gecikme veya bant genişliği kaybı **yok** kabul edilir; gözlemler anlık ve senkron sayılır.
 
@@ -163,6 +177,25 @@ Bu projede kullanılan son mimari, Stable-Baselines3 PPO’nun **MLP tabanlı po
 ### 3. VecNormalize kullanımı
 - **Kullanmadan:** Gözlemler ölçek farklılıkları nedeniyle eğitimi zorlaştırıyordu.
 - **Kullanarak:** `norm_obs=True`, `clip_obs=10` — stabil ve daha hızlı öğrenme.
+
+---
+
+## Parametre Gerekçelendirmesi (Mülakatta Gelebilecek Sorular)
+
+### safety_radius = 2.0, obstacle_radius = 3.0
+- **safety_radius (2.0):** Drone–engel veya drone–duvar mesafesi bu değerin altına düştüğünde çarpışma sayılır. Formation offset’ler ~1.5 birim; drone’lar birbirine 3 birim civarı yaklaşabiliyor. safety_radius=2.0, engel boyutu (obstacle_radius=3) ile uyumlu: engelden en az ~1 birim boşluk kalacak şekilde çarpışma tetiklenir. Daha küçük (1.0) seçilse geç algılama, daha büyük (3.0+) seçilse gereksiz erken ceza riski var.
+- **obstacle_radius (3.0):** Engel yarıçapı; grid 50×50, formation ~3 birim genişliğinde. 3.0 ile engeller dar geçitler oluşturabilecek kadar büyük ama aşılamaz değil. Grid ölçeğine göre makul bir değer; 2.0 çok küçük, 5.0 çok büyük kalırdı.
+
+### Observation: 30 boyut, 4 ray neden?
+- **30 boyut yapısı:** 2 (merkez) + 2 (hız) + 2 (hedef vektör) + 8 (formation hataları) + 16 (4 drone × 4 ray) = 30. Boyut sayısı bu bileşenlerin toplamı; tasarım kararı önce “ne bilmeli?” sorusuna cevap, sonra bunların concat’i.
+- **4 ray neden?** Başlangıçta sadece merkez+hedef vardı; engel bilgisi yoktu, çarpışma çoktu. 4 yön (0°, 90°, 180°, 270°) — ön, sağ, arka, sol — temel engel algılama için yeterli bulundu. 8 ray daha iyi algılama sağlayabilir (Baştan Başlasam bölümünde not edildi) ama obs boyutu 38’e çıkar, eğitim süresi artar; bu case study’de 4 ray ile çalışan bir çözüm elde edildi, trade-off olarak kabul edildi.
+
+### Eğitim süresi: 2M timestep nasıl belirlendi?
+- **1M default, 2M önerilen:** `train.py` varsayılanı 1M; README’de örnek olarak `--timesteps 2000000` veriliyor. 2M tercihi: reward eğrisinin saturasyona yaklaşması ve eval skorunun stabilize olması için yeterli süre. 500K’da erken durursa genelleme zayıf kalabiliyor; 2M ile hem rastgele parkurda hem hard course’ta tutarlı davranış gözlemlendi. Kesin bir grid search yapılmadı; deneyimsel olarak “1M’den iyi, 3M’de marginal fayda” gözlemi.
+
+### Formation cezası ile çarpışma cezası çakışırsa ne olur?
+- **Öncelik:** Çarpışma cezası (-10/çarpışma) formation cezasından (-0.3×formation_err) **çok daha büyük**. Dolayısıyla politika önce çarpışmadan kaçınmayı öğrenir; formation ikincil kalır. Dar geçitten geçerken formation bozulması (yüksek formation_err) kabul edilebilir çünkü çarpışma cezası daha ağır.
+- **Çakışma senaryosu:** “Sıkı formation koru” ile “engele çarpma” çelişirse (dar geçit), politika formation’dan taviz verip geçitten geçmeyi tercih eder — bu istenen davranış. Katsayılar (`formation_coef=0.3`, collision=-10) bu önceliği yansıtacak şekilde seçildi.
 
 ---
 
