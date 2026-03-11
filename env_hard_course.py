@@ -1,52 +1,75 @@
 """
-DroneSwarmEnvHybrid2HardCourse - Sabit zorlu parkur.
+Shared hard course env — sabit zorlu parkur (hard_course_config.py) + parameter sharing.
 
-Engel konumları hybrid_2/hard_course_config.py dosyasından okunur.
-O dosyada HARD_START, HARD_TARGET, HARD_OBSTACLES'ı düzenleyebilirsin.
+Bu ortam, `env_shared.DroneSwarmSharedEnv` ile aynı observation/action yapısını korur:
+  - Obs: 40 (4 drone × 10 lokal obs)
+  - Act: 8  (4 drone × 2 hız)
+
+Fark: Start/target ve engeller rastgele değil, `hard_course_config.py`'deki
+HARD_START, HARD_TARGET ve HARD_OBSTACLES kullanılır.
 """
 
+import os
+import sys
+
+_here = os.path.dirname(os.path.abspath(__file__))
+_root = os.path.dirname(_here)
+if _root not in sys.path:
+    sys.path.insert(0, _root)
+
 import numpy as np
-from typing import Tuple, Dict, Optional
+from typing import Optional, Dict, Tuple
 
-from env import DroneSwarmEnvHybrid2
 from hard_course_config import HARD_START, HARD_TARGET, HARD_OBSTACLES
+from env_shared import DroneSwarmSharedEnv
 
 
-class DroneSwarmEnvHybrid2HardCourse(DroneSwarmEnvHybrid2):
-    """Her reset'te aynı zorlu parkuru kullanır."""
+class DroneSwarmSharedHardCourseEnv(DroneSwarmSharedEnv):
+    """
+    Sabit hard course (config'ten) + shared policy ortamı.
 
-    def __init__(self, swap_start_target: bool = False,
-                 custom_start: Optional[np.ndarray] = None,
-                 custom_target: Optional[np.ndarray] = None,
-                 **kwargs):
-        super().__init__(**kwargs)
+    reset() her seferinde aynı layout'u kurar:
+      - swap_start_target=False: start=HARD_START, target=HARD_TARGET
+      - swap_start_target=True : start=HARD_TARGET, target=HARD_START
+    random_swap=True ise her episode'ta swap rastgele seçilir.
+    """
+
+    def __init__(
+        self,
+        swap_start_target: bool = False,
+        random_swap: bool = False,
+        **kwargs,
+    ):
+        # random_obstacles kapalı; engeller config'ten
+        # Çağıran random_obstacles göndermiş olsa bile yok say.
+        kwargs.pop("random_obstacles", None)
+        super().__init__(random_obstacles=False, **kwargs)
         self.swap_start_target = swap_start_target
-        self.custom_start = np.array(custom_start, dtype=np.float32) if custom_start is not None else None
-        self.custom_target = np.array(custom_target, dtype=np.float32) if custom_target is not None else None
+        self.random_swap = random_swap
 
     def reset(
         self,
         seed: Optional[int] = None,
         options: Optional[Dict] = None,
     ) -> Tuple[np.ndarray, Dict]:
-        super().reset(seed=seed)
+        # RNG
         if seed is not None:
             self.np_random = np.random.default_rng(seed)
 
         self.step_count = 0
-        self.done = False
-        self.drone_velocities = np.zeros((4, 2), dtype=np.float32)
 
-        # Başlangıç ve hedef: custom verilmişse onları kullan, yoksa config + swap
-        if self.custom_start is not None and self.custom_target is not None:
-            start = self.custom_start.copy()
-            target = self.custom_target.copy()
-        else:
-            start = HARD_TARGET.copy() if self.swap_start_target else HARD_START.copy()
-            target = HARD_START.copy() if self.swap_start_target else HARD_TARGET.copy()
-        center = start
-        self.drone_positions = center + self.FORMATION_OFFSETS
-        self.target_pos = target
-        self.obstacles = [o.copy() for o in HARD_OBSTACLES]
+        # Swap kararı
+        swap = (self.np_random.random() < 0.5) if self.random_swap else self.swap_start_target
 
-        return self._get_obs(), self._get_info()
+        start_center = HARD_TARGET.copy() if swap else HARD_START.copy()
+        target = HARD_START.copy() if swap else HARD_TARGET.copy()
+
+        self.target = target.astype(np.float32)
+        self.positions = (start_center + self.formation_offsets).astype(np.float32)
+        self.velocities = np.zeros((self.N_DRONES, 2), dtype=np.float32)
+        self.obstacles = HARD_OBSTACLES.astype(np.float32)
+
+        obs = self._get_obs()
+        info = {"dist_to_goal": float(np.linalg.norm(self.positions.mean(axis=0) - self.target))}
+        return obs, info
+

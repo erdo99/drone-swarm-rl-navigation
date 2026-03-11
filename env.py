@@ -1,232 +1,291 @@
 """
-DroneSwarmEnvHybrid2 - Hybrid + rastgele başlangıç/hedef konumları.
+env_shared.py — Parameter Sharing + Local Observation Ortamı
 
-Hybrid ile aynı action/obs yapısı, fakat reset'te:
-- Başlangıç: haritanın herhangi bir yerinde (güvenli marjla)
-- Hedef: başlangıçtan yeterince uzak, yine herhangi bir yerde
+MİMARİ:
+  Centralized Training, Decentralized Execution (CTDE)
+  - 1 PPO model eğitilir, 4 drone için aynı ağırlıklar kullanılır
+  - Her drone sadece kendi lokal gözlemini kullanarak karar verir
+  - Eğitim sırasında Gymnasium wrapper tüm drone'ları birleştirir
+
+DÜZELTMELER (v2):
+  1. Momentum eklendi (alpha=0.7, Hybrid2 ile aynı)
+  2. Ray sayısı 2 → 4 (ileri, sağ, geri, sol — 4 yön)
+  3. OBS_DIM 10 → 12 (2 ekstra ray için güncellendi)
+  4. Formasyon hatası normalize ölçeği tutarlı hale getirildi
+
+OBSERVATION UZAYI (12 boyut, per-drone):
+  [0-1]   Kendi pozisyonu (x, y) — normalize [0,1]
+  [2-3]   Kendi hızı (vx, vy) — normalize [-1,1]
+  [4-5]   Hedefe göre relative vektör (dx, dy) — normalize
+  [6-7]   İdeal formasyondan sapma (ex, ey) — normalize (grid_size ile)
+  [8-11]  4-yönlü ray mesafesi (ileri, sağ, geri, sol) — [0,1]
+
+ACTION UZAYI (2 boyut, per-drone):
+  [0]  vx — [-1,1] × max_speed
+  [1]  vy — [-1,1] × max_speed
 """
 
 import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
-from typing import Optional, Tuple, Dict, Any, List
-import math
 
 
-class DroneSwarmEnvHybrid2(gym.Env):
+class DroneSwarmSharedEnv(gym.Env):
     """
-    Hybrid_2: Ortak hız + per-drone offset, rastgele başlangıç/hedef.
-    Her episode'da start ve target haritada farklı bölgelerde olabilir.
+    Gymnasium ortamı — Parameter Sharing / CTDE mimarisi için.
+
+    Bu ortam 4 drone'u tek bir agent gibi sarmalıyor.
+    Ama içeride her drone için ayrı obs üretip ayrı action alıyor.
+
+    Stable-Baselines3 ile kullanmak için:
+      - obs shape: (N_DRONES * OBS_DIM,) = (48,)   <- 4*12
+      - act shape: (N_DRONES * ACT_DIM,) = (8,)
+    Model içeride her 12 boyutu ayrı drone obs'u olarak işler.
     """
 
-    metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 30}
+    metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 10}
 
-    FORMATION_OFFSETS = np.array([
-        [-1.5, -1.5], [1.5, -1.5], [-1.5, 1.5], [1.5, 1.5],
-    ], dtype=np.float32)
+    N_DRONES = 4
+    OBS_DIM = 12   # 2(pos) + 2(vel) + 2(goal) + 2(formation_err) + 4(rays)
+    ACT_DIM = 2
 
     def __init__(
         self,
         grid_size: float = 50.0,
         n_obstacles: int = 5,
-        n_obstacles_range: Optional[Tuple[int, int]] = None,
+        n_obstacles_range: tuple = (5, 9),
+        random_obstacles: bool = True,
         safety_radius: float = 2.0,
+        obstacle_radius: float = 3.0,
         max_speed: float = 2.0,
-        offset_scale: float = 0.6,
-        max_steps: int = 500,
-        render_mode: Optional[str] = None,
-        wall_sliding: bool = True,
+        formation_size: float = 4.0,
         formation_coef: float = 0.3,
+        momentum_alpha: float = 0.7,
+        max_steps: int = 500,
+        obstacles_on_route: bool = True,
+        route_corridor_width: float = 16.0,
         proximity_threshold: float = 2.0,
         proximity_penalty_coef: float = 0.1,
         min_drone_separation: float = 1.5,
         min_drone_separation_penalty: float = 15.0,
-        min_start_target_dist: float = 15.0,
-        seed: Optional[int] = None,
+        render_mode=None,
     ):
         super().__init__()
+
         self.grid_size = grid_size
         self.n_obstacles = n_obstacles
         self.n_obstacles_range = n_obstacles_range
+        self.random_obstacles = random_obstacles
         self.safety_radius = safety_radius
+        self.obstacle_radius = obstacle_radius
         self.max_speed = max_speed
-        self.offset_scale = offset_scale
-        self.max_steps = max_steps
-        self.render_mode = render_mode
-        self.wall_sliding = wall_sliding
+        self.formation_size = formation_size
         self.formation_coef = formation_coef
+        self.momentum_alpha = momentum_alpha
+        self.max_steps = max_steps
+        self.obstacles_on_route = obstacles_on_route
+        self.route_corridor_width = route_corridor_width
         self.proximity_threshold = proximity_threshold
         self.proximity_penalty_coef = proximity_penalty_coef
         self.min_drone_separation = min_drone_separation
         self.min_drone_separation_penalty = min_drone_separation_penalty
-        self.min_start_target_dist = min_start_target_dist
+        self.render_mode = render_mode
 
-        self.action_space = spaces.Box(
-            low=-1.0, high=1.0, shape=(10,), dtype=np.float32
-        )
-        obs_dim = 2 + 2 + 2 + 8 + 16
+        s = formation_size / 2
+        self.formation_offsets = np.array([
+            [-s, -s], [s, -s], [-s, s], [s, s],
+        ], dtype=np.float32)
+
+        total_obs = self.N_DRONES * self.OBS_DIM
         self.observation_space = spaces.Box(
-            low=-np.inf, high=np.inf, shape=(obs_dim,), dtype=np.float32
+            low=-1.0, high=1.0, shape=(total_obs,), dtype=np.float32
+        )
+        total_act = self.N_DRONES * self.ACT_DIM
+        self.action_space = spaces.Box(
+            low=-1.0, high=1.0, shape=(total_act,), dtype=np.float32
         )
 
-        self.np_random = np.random.default_rng(seed)
-        self.renderer = None
-        self.drone_positions = np.zeros((4, 2), dtype=np.float32)
-        self.drone_velocities = np.zeros((4, 2), dtype=np.float32)
-        self.target_pos = np.zeros(2, dtype=np.float32)
-        self.obstacles: List[np.ndarray] = []
-        self.obstacle_radius = 3.0
+        self.positions = None
+        self.velocities = None
+        self.obstacles = None
+        self.target = None
         self.step_count = 0
-        self.done = False
+        self.np_random = np.random.default_rng(None)
 
-    @property
-    def center_pos(self) -> np.ndarray:
-        return self.drone_positions.mean(axis=0).astype(np.float32)
+        self._pygame = None
+        self._screen = None
 
-    @property
-    def center_vel(self) -> np.ndarray:
-        return self.drone_velocities.mean(axis=0).astype(np.float32)
-
-    def reset(
-        self,
-        seed: Optional[int] = None,
-        options: Optional[Dict] = None,
-    ) -> Tuple[np.ndarray, Dict]:
+    def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         if seed is not None:
             self.np_random = np.random.default_rng(seed)
 
-        self.step_count = 0
-        self.done = False
-        self.drone_velocities = np.zeros((4, 2), dtype=np.float32)
-
-        margin = 6.0
-        lo, hi = margin, self.grid_size - margin
-
-        # Rastgele başlangıç merkezi (haritanın herhangi bir yerinde)
-        center = self.np_random.uniform(lo, hi, size=2).astype(np.float32)
-        self.drone_positions = center + self.FORMATION_OFFSETS
-
-        # Rastgele hedef, başlangıçtan en az min_start_target_dist uzakta
-        for _ in range(500):
-            target = self.np_random.uniform(lo, hi, size=2).astype(np.float32)
-            if np.linalg.norm(target - center) >= self.min_start_target_dist:
-                self.target_pos = target
-                break
+        if self.random_obstacles:
+            n_obs = int(self.np_random.integers(
+                self.n_obstacles_range[0],
+                self.n_obstacles_range[1] + 1
+            ))
         else:
-            self.target_pos = center + np.array([15.0, 0.0], dtype=np.float32)
-            self.target_pos = np.clip(self.target_pos, lo, hi).astype(np.float32)
+            n_obs = self.n_obstacles
 
-        n_obs = self.n_obstacles
-        if self.n_obstacles_range is not None:
-            lo, hi = self.n_obstacles_range
-            n_obs = int(self.np_random.integers(lo, hi + 1))
-        self._n_obstacles_this_episode = n_obs
-        self._generate_obstacles()
-        return self._get_obs(), self._get_info()
+        margin = 8.0
+        start_center = self.np_random.uniform(margin, self.grid_size - margin, size=2).astype(np.float32)
+        target = self.np_random.uniform(margin, self.grid_size - margin, size=2).astype(np.float32)
+        while np.linalg.norm(target - start_center) < 15.0:
+            target = self.np_random.uniform(margin, self.grid_size - margin, size=2).astype(np.float32)
 
-    def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, bool, Dict]:
-        assert not self.done
-        action = np.clip(action, -1.0, 1.0).astype(np.float32)
-        alpha = 0.7
-        shared_vel = action[0:2] * self.max_speed
-        collisions: List[int] = []
-
-        for i in range(4):
-            offset = action[2 + 2*i:4 + 2*i] * self.max_speed * self.offset_scale
-            desired = shared_vel + offset
-            self.drone_velocities[i] = alpha * desired + (1 - alpha) * self.drone_velocities[i]
-            new_pos = self.drone_positions[i] + self.drone_velocities[i]
-
-            if self.wall_sliding:
-                new_pos, self.drone_velocities[i] = self._apply_wall_sliding(
-                    new_pos, self.drone_velocities[i]
-                )
-            else:
-                new_pos = np.clip(new_pos, 3.0, self.grid_size - 3.0)
-
-            all_new = self.drone_positions.copy()
-            all_new[i] = new_pos
-            hit = self._check_collisions(all_new)
-            if i in hit:
-                self.drone_velocities[i] *= 0.1
-                collisions.append(i)
-            else:
-                self.drone_positions[i] = new_pos
-
-        reward, terminated = self._compute_reward(collisions)
-        self.step_count += 1
-        truncated = self.step_count >= self.max_steps
-        if terminated or truncated:
-            self.done = True
+        self.target = target
+        self.positions = (start_center + self.formation_offsets).astype(np.float32)
+        self.velocities = np.zeros((self.N_DRONES, 2), dtype=np.float32)
+        self.obstacles = self._generate_obstacles(n_obs, start_center, target)
+        self.step_count = 0
 
         obs = self._get_obs()
-        info = self._get_info()
-        info["collisions"] = len(collisions)
-        if self.render_mode == "human":
-            self.render()
-        return obs, reward, terminated, truncated, info
+        return obs, {}
+
+    def _check_collisions(self, drone_positions: np.ndarray) -> list:
+        """Hangi drone'lar carpısma bolgesinde."""
+        collisions = []
+        for i, pos in enumerate(drone_positions):
+            hit = False
+            if (pos[0] <= self.safety_radius or pos[0] >= self.grid_size - self.safety_radius or
+                    pos[1] <= self.safety_radius or pos[1] >= self.grid_size - self.safety_radius):
+                hit = True
+            if not hit and self.obstacles is not None and len(self.obstacles) > 0:
+                for obs_pos in self.obstacles:
+                    if np.linalg.norm(pos - obs_pos) < self.safety_radius + self.obstacle_radius:
+                        hit = True
+                        break
+            if hit:
+                collisions.append(i)
+        return collisions
+
+    def step(self, action):
+        self.step_count += 1
+        action = np.clip(action, -1.0, 1.0).reshape(self.N_DRONES, self.ACT_DIM)
+        desired_velocities = action * self.max_speed
+
+        alpha = self.momentum_alpha
+
+        collisions = []
+        collision_positions = {}
+        for i in range(self.N_DRONES):
+            # Momentum ile yumusak hiz guncelleme (Hybrid2 ile ayni mantik)
+            blended_vel = alpha * desired_velocities[i] + (1.0 - alpha) * self.velocities[i]
+            new_pos = self.positions[i] + blended_vel
+            new_pos, new_vel = self._apply_wall_sliding(new_pos.copy(), blended_vel.copy())
+
+            all_new = self.positions.copy()
+            all_new[i] = new_pos
+            hit = self._check_collisions(all_new)
+
+            if i in hit:
+                self.velocities[i] = new_vel * 0.1  # carpısma: hiz sonumlenir
+                collisions.append(i)
+                collision_positions[i] = new_pos
+            else:
+                self.positions[i] = new_pos.astype(np.float32)
+                self.velocities[i] = new_vel.astype(np.float32)
+
+        reward, done, info = self._compute_reward(collisions, collision_positions)
+        truncated = self.step_count >= self.max_steps
+        obs = self._get_obs()
+        return obs, reward, done, truncated, info
 
     def render(self):
         if self.render_mode == "human":
-            self._render_human()
-        elif self.render_mode == "rgb_array":
-            return self._render_rgb()
+            self._render_pygame()
 
     def close(self):
-        if self.renderer is not None:
+        if self._screen is not None:
             import pygame
             pygame.quit()
-            self.renderer = None
+            self._screen = None
 
-    def _generate_obstacles(self):
-        self.obstacles = []
-        center = self.center_pos
-        n_obs = getattr(self, "_n_obstacles_this_episode", self.n_obstacles)
-        for _ in range(n_obs):
-            for _ in range(200):
-                pos = self.np_random.uniform(5.0, self.grid_size - 5.0, size=2).astype(np.float32)
-                if (np.linalg.norm(pos - center) > 7.0 and
-                    np.linalg.norm(pos - self.target_pos) > 7.0 and
-                    not any(np.linalg.norm(pos - o) < self.obstacle_radius * 2.5 for o in self.obstacles)):
-                    self.obstacles.append(pos)
-                    break
+    def _get_obs(self):
+        obs_list = []
+        center = self.positions.mean(axis=0)
+        for i in range(self.N_DRONES):
+            pos_norm = self.positions[i] / self.grid_size
+            vel_norm = self.velocities[i] / self.max_speed
+            to_target = self.target - self.positions[i]
+            target_norm = to_target / (self.grid_size * np.sqrt(2) + 1e-6)
 
-    def _get_drone_positions(self) -> np.ndarray:
-        return self.drone_positions.astype(np.float32)
+            # DUZELTME: formation_err normalize olcegi tutarli
+            # obs: ham_hata / grid_size  →  reward: ham_hata * formation_coef
+            # Her ikisi de ayni fiziksel hatadan turetiliyor, olcekler tutarli
+            ideal_pos = center + self.formation_offsets[i]
+            formation_err = (self.positions[i] - ideal_pos) / self.grid_size
 
-    def _check_collisions(self, drone_positions: np.ndarray) -> List[int]:
-        collisions = []
-        for i, dp in enumerate(drone_positions):
-            for obs in self.obstacles:
-                if np.linalg.norm(dp - obs) < self.safety_radius + self.obstacle_radius:
-                    collisions.append(i)
-                    break
-            if np.any(dp < 1.0) or np.any(dp > self.grid_size - 1.0):
-                if i not in collisions:
-                    collisions.append(i)
-        return collisions
+            rays = self._ray_distances_4dir(i)  # 4 yonlu ray
 
-    def _apply_wall_sliding(
-        self, pos: np.ndarray, vel: np.ndarray
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        min_p, max_p = 3.0, self.grid_size - 3.0
-        new_pos, new_vel = pos.copy(), vel.copy()
-        for d in range(2):
-            if new_pos[d] < min_p:
-                new_pos[d], new_vel[d] = min_p, 0.0
-            elif new_pos[d] > max_p:
-                new_pos[d], new_vel[d] = max_p, 0.0
-        return new_pos, new_vel
+            drone_obs = np.concatenate([
+                pos_norm,        # [0-1]
+                vel_norm,        # [2-3]
+                target_norm,     # [4-5]
+                formation_err,   # [6-7]
+                rays,            # [8-11]
+            ]).astype(np.float32)
+            obs_list.append(drone_obs)
+        return np.concatenate(obs_list)
+
+    def _ray_distances_4dir(self, drone_idx: int) -> np.ndarray:
+        """
+        4 yonlu ray: ileri, sag, geri, sol.
+        'Ileri' hedefe dogru yon, diger uc buna gore donduruluyor.
+        Hybrid2'deki 4-ray ile ayni kapsam (tum yonler).
+        """
+        pos = self.positions[drone_idx]
+        to_target = self.target - pos
+        dist = np.linalg.norm(to_target)
+        if dist < 1e-6:
+            forward = np.array([1.0, 0.0], dtype=np.float32)
+        else:
+            forward = (to_target / dist).astype(np.float32)
+
+        right = np.array([ forward[1], -forward[0]], dtype=np.float32)
+        back  = -forward
+        left  = -right
+
+        directions = [forward, right, back, left]
+        max_ray = self.grid_size
+        results = []
+
+        for direction in directions:
+            min_dist = max_ray
+
+            # Duvar mesafesi
+            for dim in range(2):
+                if abs(direction[dim]) > 1e-6:
+                    if direction[dim] > 0:
+                        d = (self.grid_size - pos[dim]) / direction[dim]
+                    else:
+                        d = (0.0 - pos[dim]) / direction[dim]
+                    min_dist = min(min_dist, max(0.0, float(d)))
+
+            # Engel mesafesi
+            if self.obstacles is not None and len(self.obstacles) > 0:
+                for obs_pos in self.obstacles:
+                    to_obs = obs_pos - pos
+                    proj = np.dot(to_obs, direction)
+                    if proj > 0:
+                        perp = np.linalg.norm(to_obs - proj * direction)
+                        if perp < self.obstacle_radius:
+                            hit_dist = proj - np.sqrt(max(0.0, self.obstacle_radius**2 - perp**2))
+                            min_dist = min(min_dist, max(0.0, float(hit_dist)))
+
+            results.append(min_dist / max_ray)
+
+        return np.array(results, dtype=np.float32)
 
     def _proximity_penalty(self) -> float:
-        """Drone-drone yakınlık cezası: birbirine çok yaklaşınca mesafeye göre ceza."""
+        """Drone-drone yakınlık cezası: d < proximity_threshold ise coef * (thresh - d)."""
         penalty = 0.0
         thresh = self.proximity_threshold
         coef = self.proximity_penalty_coef
-        for i in range(4):
-            for j in range(i + 1, 4):
-                d = float(np.linalg.norm(self.drone_positions[i] - self.drone_positions[j]))
+        for i in range(self.N_DRONES):
+            for j in range(i + 1, self.N_DRONES):
+                d = float(np.linalg.norm(self.positions[i] - self.positions[j]))
                 if d < thresh:
                     penalty += coef * (thresh - d)
         return penalty
@@ -236,131 +295,147 @@ class DroneSwarmEnvHybrid2(gym.Env):
         penalty = 0.0
         min_sep = self.min_drone_separation
         p_per_pair = self.min_drone_separation_penalty
-        for i in range(4):
-            for j in range(i + 1, 4):
-                d = float(np.linalg.norm(self.drone_positions[i] - self.drone_positions[j]))
+        for i in range(self.N_DRONES):
+            for j in range(i + 1, self.N_DRONES):
+                d = float(np.linalg.norm(self.positions[i] - self.positions[j]))
                 if d < min_sep:
                     penalty += p_per_pair
         return penalty
 
-    def _obstacle_ray_distances(self, drone_pos: np.ndarray, n_rays: int = 4) -> np.ndarray:
-        angles = np.linspace(0, 2 * math.pi, n_rays, endpoint=False)
-        dists = np.ones(n_rays, dtype=np.float32) * self.grid_size
-        for i, a in enumerate(angles):
-            d = np.array([math.cos(a), math.sin(a)], dtype=np.float32)
-            for obs in self.obstacles:
-                rel = obs - drone_pos
-                proj = np.dot(rel, d)
-                if proj > 0 and np.linalg.norm(rel - proj * d) < self.obstacle_radius + self.safety_radius:
-                    dists[i] = min(dists[i], proj)
-            for dim in range(2):
-                if d[dim] > 1e-6:
-                    t = (self.grid_size - 3.0 - drone_pos[dim]) / d[dim]
-                elif d[dim] < -1e-6:
-                    t = (3.0 - drone_pos[dim]) / d[dim]
-                else:
-                    continue
-                dists[i] = min(dists[i], t)
-        return np.clip(dists / self.grid_size, 0.0, 1.0).astype(np.float32)
+    def _compute_reward(self, collisions: list = None, collision_positions: dict = None):
+        if collisions is None:
+            collisions = self._check_collisions(self.positions)
+            collision_positions = {}
+        if collision_positions is None:
+            collision_positions = {}
+        n_collisions = len(collisions)
 
-    def _get_obs(self) -> np.ndarray:
-        norm = self.grid_size
-        center = self.center_pos
-        ideal = center + self.FORMATION_OFFSETS
-        formation_errors = (self.drone_positions - ideal).flatten() / norm
-        rel_goal = (self.target_pos - center) / norm
-        rays = np.concatenate([
-            self._obstacle_ray_distances(dp) for dp in self.drone_positions
-        ])
-        return np.concatenate([
-            center / norm,
-            self.center_vel / self.max_speed,
-            rel_goal,
-            formation_errors,
-            rays,
-        ]).astype(np.float32)
+        center = self.positions.mean(axis=0)
+        dist_to_target = float(np.linalg.norm(center - self.target))
+        reward = -0.01 * dist_to_target - 0.01
+        done = False
+        info = {}
 
-    def _compute_reward(self, collisions: List[int]) -> Tuple[float, bool]:
-        center = self.center_pos
-        dist = float(np.linalg.norm(center - self.target_pos))
-        reward = -dist * 0.01 - len(collisions) * 10.0 - 0.01
+        # Carpısma cezasi
+        reward -= 10.0 * n_collisions
+        if n_collisions >= 2:
+            reward -= 20.0
+            done = True
+            info["termination"] = "heavy_collision"
+
+        # Formasyon hatasi — ham deger, formation_coef ile olceklenir
+        ideal_positions = center + self.formation_offsets
+        formation_error = float(np.linalg.norm(self.positions - ideal_positions))
+        reward -= self.formation_coef * formation_error
+
+        # Drone-drone yakınlık cezaları (Hybrid ile aynı)
         reward -= self._proximity_penalty()
         reward -= self._min_separation_penalty()
-        ideal = center + self.FORMATION_OFFSETS
-        formation_err = np.linalg.norm(self.drone_positions - ideal)
-        reward -= float(formation_err) * self.formation_coef
-        terminated = False
-        if dist < 3.0:
+
+        if dist_to_target < 3.0:
             reward += 1000.0
-            terminated = True
-        if len(collisions) >= 2:
-            reward -= 20.0
-            terminated = True
-        return reward, terminated
+            done = True
+            info["termination"] = "success"
 
-    def _get_info(self) -> Dict[str, Any]:
-        d = float(np.linalg.norm(self.center_pos - self.target_pos))
-        return {
-            "dist_to_goal": d,
-            "step": self.step_count,
-            "center_pos": self.center_pos.copy(),
-            "target_pos": self.target_pos.copy(),
-        }
+        info["dist_to_goal"] = dist_to_target
+        info["formation_error"] = formation_error
+        info["n_collisions"] = n_collisions
+        return reward, done, info
 
-    def _render_human(self):
+    def _apply_wall_sliding(
+        self, pos: np.ndarray, vel: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Duvar sinirini asarsa konum sabitleniyor, o eksendeki hiz sifirlanıyor."""
+        min_p, max_p = 3.0, self.grid_size - 3.0
+        new_pos, new_vel = pos.copy(), vel.copy()
+        for d in range(2):
+            if new_pos[d] < min_p:
+                new_pos[d], new_vel[d] = min_p, 0.0
+            elif new_pos[d] > max_p:
+                new_pos[d], new_vel[d] = max_p, 0.0
+        return new_pos, new_vel
+
+    def _generate_obstacles(self, n_obs, start_center, target):
+        obstacles = []
+        min_dist_from_spawn = self.obstacle_radius + self.safety_radius + self.formation_size + 2.0
+        margin = self.obstacle_radius + 1.0
+
+        if self.obstacles_on_route:
+            # Engeller hedefe giden rotada: start-target arasi koridor
+            seg = target - start_center
+            dir_vec = seg / (float(np.linalg.norm(seg)) + 1e-6)
+            perp = np.array([-dir_vec[1], dir_vec[0]], dtype=np.float32)
+            half_width = self.route_corridor_width / 2.0
+            # Rota boyunca start ve target'tan uzak bolge (t: 0.15 - 0.85)
+            t_lo, t_hi = 0.15, 0.85
+        else:
+            dir_vec = perp = None
+
+        for _ in range(n_obs):
+            for _ in range(200):
+                if self.obstacles_on_route and dir_vec is not None:
+                    t = float(self.np_random.uniform(t_lo, t_hi))
+                    along = start_center + t * seg
+                    off = float(self.np_random.uniform(-half_width, half_width))
+                    pos = (along + off * perp).astype(np.float32)
+                    pos = np.clip(pos, margin, self.grid_size - margin)
+                else:
+                    pos = self.np_random.uniform(margin, self.grid_size - margin, size=2).astype(np.float32)
+
+                if (np.linalg.norm(pos - start_center) > min_dist_from_spawn and
+                        np.linalg.norm(pos - target) > min_dist_from_spawn):
+                    ok = True
+                    for existing in obstacles:
+                        if np.linalg.norm(pos - existing) < 2 * self.obstacle_radius + 1.0:
+                            ok = False
+                            break
+                    if ok:
+                        obstacles.append(pos)
+                        break
+        return np.array(obstacles, dtype=np.float32) if obstacles else np.zeros((0, 2), dtype=np.float32)
+
+    def _render_pygame(self):
         try:
             import pygame
         except ImportError:
             return
-        cell = 12
-        size = int(self.grid_size * cell)
-        if self.renderer is None:
+        CELL = 12
+        W = H = self.grid_size * CELL
+        if self._screen is None:
             pygame.init()
-            self.renderer = pygame.display.set_mode((size, size))
-            pygame.display.set_caption("Drone Swarm (Hybrid2 - Rastgele Start/Target)")
+            self._screen = pygame.display.set_mode((int(W), int(H)))
+            pygame.display.set_caption("Drone Swarm — Shared Policy (CTDE)")
             self._clock = pygame.time.Clock()
-        self.renderer.fill((20, 20, 30))
-        for o in self.obstacles:
-            pygame.draw.circle(
-                self.renderer, (180, 60, 60),
-                (int(o[0] * cell), int((self.grid_size - o[1]) * cell)),
-                int(self.obstacle_radius * cell),
-            )
-        tx, ty = int(self.target_pos[0] * cell), int((self.grid_size - self.target_pos[1]) * cell)
-        pygame.draw.circle(self.renderer, (60, 220, 60), (tx, ty), int(3.0 * cell))
-        colors = [(100, 180, 255), (100, 255, 180), (255, 200, 100), (200, 100, 255)]
-        for i, dp in enumerate(self.drone_positions):
-            px, py = int(dp[0] * cell), int((self.grid_size - dp[1]) * cell)
-            pygame.draw.circle(self.renderer, colors[i], (px, py), int(1.2 * cell))
-        cx, cy = int(self.center_pos[0] * cell), int((self.grid_size - self.center_pos[1]) * cell)
-        pygame.draw.circle(self.renderer, (255, 255, 100), (cx, cy), 4)
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                return
+        self._screen.fill((20, 20, 30))
+        if self.obstacles is not None:
+            for obs_pos in self.obstacles:
+                pygame.draw.circle(
+                    self._screen, (180, 60, 60),
+                    (int(obs_pos[0] * CELL), int((self.grid_size - obs_pos[1]) * CELL)),
+                    int(self.obstacle_radius * CELL)
+                )
+        pygame.draw.circle(
+            self._screen, (60, 220, 60),
+            (int(self.target[0] * CELL), int((self.grid_size - self.target[1]) * CELL)),
+            int(3.0 * CELL), 2
+        )
+        colors = [(100, 180, 255), (255, 200, 80), (180, 255, 120), (255, 120, 200)]
+        for i, pos in enumerate(self.positions):
+            cx, cy = int(pos[0] * CELL), int((self.grid_size - pos[1]) * CELL)
+            pygame.draw.circle(self._screen, colors[i], (cx, cy), int(1.2 * CELL))
+        center = self.positions.mean(axis=0)
+        pygame.draw.circle(
+            self._screen, (255, 255, 255),
+            (int(center[0] * CELL), int((self.grid_size - center[1]) * CELL)), 3
+        )
         pygame.display.flip()
         self._clock.tick(self.metadata["render_fps"])
-        for e in pygame.event.get():
-            if e.type == pygame.QUIT:
-                self.close()
 
-    def _render_rgb(self) -> np.ndarray:
-        import io
-        try:
-            import matplotlib
-            matplotlib.use("Agg")
-            import matplotlib.pyplot as plt
-        except ImportError:
-            return np.zeros((400, 400, 3), dtype=np.uint8)
-        fig, ax = plt.subplots(1, 1, figsize=(6, 6))
-        ax.set_xlim(0, self.grid_size)
-        ax.set_ylim(0, self.grid_size)
-        ax.set_facecolor("#141420")
-        for o in self.obstacles:
-            ax.add_patch(plt.Circle(o, self.obstacle_radius, color="#B43C3C", alpha=0.8))
-        ax.add_patch(plt.Circle(self.target_pos, 2.0, color="#3CDD3C", alpha=0.8))
-        for i, dp in enumerate(self.drone_positions):
-            ax.add_patch(plt.Circle(dp, 1.0, color=["#64B4FF", "#64FFBA", "#FFC864", "#C864FF"][i], alpha=0.9))
-        ax.plot(*self.center_pos, "y*", markersize=10)
-        buf = io.BytesIO()
-        plt.savefig(buf, format="png", bbox_inches="tight", dpi=80)
-        plt.close(fig)
-        buf.seek(0)
-        import PIL.Image
-        return np.array(PIL.Image.open(buf))[:, :, :3]
+    def get_per_drone_obs(self):
+        """Her drone'un lokal gozlemini ayri ayri dondurur (inference icin)."""
+        full_obs = self._get_obs()
+        return [full_obs[i * self.OBS_DIM:(i + 1) * self.OBS_DIM] for i in range(self.N_DRONES)]

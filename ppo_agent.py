@@ -1,121 +1,125 @@
 """
-PPO Agent for DroneSwarmEnvHybrid2 (10-dim action, rastgele start/target).
+ppo_agent_shared.py — Shared Policy PPO Agent
+
+MİMARİ:
+  - Stable-Baselines3 PPO + VecNormalize
+  - Tek model, 4 drone'u kapsıyor
+  - Obs: (48,) = 4 drone × 12 lokal obs  ← v2: OBS_DIM 10→12 (+2 ray)
+  - Act: (8,)  = 4 drone × 2 hız
+
+4 ayrı model DEĞİL — 1 model, ağırlıklar paylaşılıyor (parameter sharing).
 """
 
 import os
-import numpy as np
-from stable_baselines3 import PPO
-from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
-from stable_baselines3.common.callbacks import EvalCallback, CheckpointCallback, CallbackList
-from stable_baselines3.common.monitor import Monitor
-
 import sys
-import os
+
 _here = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _here)
-from env import DroneSwarmEnvHybrid2
+
+from stable_baselines3 import PPO
+from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
+from stable_baselines3.common.callbacks import EvalCallback, CheckpointCallback, CallbackList, BaseCallback
+from stable_baselines3.common.monitor import Monitor
 
 
-def make_env(
-    n_obstacles=5,
-    n_obstacles_range=None,
-    wall_sliding=True,
-    offset_scale=0.6,
-    formation_coef=0.3,
-    proximity_threshold=2.0,
-    proximity_penalty_coef=0.1,
-    min_drone_separation=1.5,
-    min_drone_separation_penalty=15.0,
-    seed=0,
-):
+class SyncVecNormalizeCallback(BaseCallback):
+    """Eval ortamı, train ortamının obs normalizasyonunu kullansın (aynı referans)."""
+    def __init__(self, eval_env, verbose=0):
+        super().__init__(verbose)
+        self.eval_env = eval_env
+
+    def _init_callback(self) -> None:
+        train_env = self.model.get_env()
+        if isinstance(train_env, VecNormalize) and isinstance(self.eval_env, VecNormalize):
+            self.eval_env.obs_rms = train_env.obs_rms  # aynı obje → otomatik güncel
+
+    def _on_step(self) -> bool:
+        return True
+
+
+def make_env(env_kwargs: dict):
     def _init():
-        e = DroneSwarmEnvHybrid2(
-            grid_size=50.0,
-            n_obstacles=n_obstacles,
-            n_obstacles_range=n_obstacles_range,
-            safety_radius=2.0,
-            max_speed=2.0,
-            offset_scale=offset_scale,
-            max_steps=500,
-            wall_sliding=wall_sliding,
-            formation_coef=formation_coef,
-            proximity_threshold=proximity_threshold,
-            proximity_penalty_coef=proximity_penalty_coef,
-            min_drone_separation=min_drone_separation,
-            min_drone_separation_penalty=min_drone_separation_penalty,
-            seed=seed,
-        )
-        return Monitor(e)
+        from env_shared import DroneSwarmSharedEnv
+        return Monitor(DroneSwarmSharedEnv(**env_kwargs))
     return _init
 
 
-def build_ppo_agent(env, tensorboard_log="./logs_hybrid_2/tensorboard/", policy_kwargs=None):
-    if policy_kwargs is None:
-        policy_kwargs = dict(net_arch=[256, 256])
+def build_agent(env, save_dir: str = "models_shared", tensorboard_log: str = None, ent_coef: float = 0.2):
+    os.makedirs(save_dir, exist_ok=True)
+    if tensorboard_log is None:
+        tensorboard_log = os.path.join("logs_shared", "tensorboard")
+    # SB3 obs boyutunu ortamdan otomatik alır — OBS_DIM değişikliği burada
+    # manuel güncelleme gerektirmez. net_arch bağımsız.
     return PPO(
-        policy="MlpPolicy", env=env,
-        learning_rate=3e-4, n_steps=2048, batch_size=256, n_epochs=10,
-        gamma=0.99, gae_lambda=0.95, clip_range=0.2, ent_coef=0.01,
-        vf_coef=0.5, max_grad_norm=0.5, policy_kwargs=policy_kwargs,
-        tensorboard_log=tensorboard_log, verbose=1,
+        policy="MlpPolicy",
+        env=env,
+        learning_rate=3e-4,
+        n_steps=2048,
+        batch_size=256,
+        n_epochs=10,
+        gamma=0.99,
+        gae_lambda=0.95,
+        clip_range=0.2,
+        ent_coef=ent_coef,
+        vf_coef=0.5,
+        max_grad_norm=0.5,
+        policy_kwargs=dict(net_arch=[256, 256]),
+        tensorboard_log=tensorboard_log,
+        verbose=1,
     )
 
 
 def train(
-    total_timesteps=1_000_000,
-    n_envs=4,
-    n_obstacles=5,
-    n_obstacles_range=None,
-    wall_sliding=True,
-    offset_scale=0.6,
-    formation_coef=0.3,
-    proximity_threshold=2.0,
-    proximity_penalty_coef=0.1,
-    min_drone_separation=1.5,
-    min_drone_separation_penalty=15.0,
-    save_dir="./models_hybrid_2/",
-    log_dir="./logs_hybrid_2/",
-    eval_freq=25_000,
-    save_freq=50_000,
+    total_timesteps: int = 2_000_000,
+    save_dir: str = "models_shared",
+    log_dir: str = "logs_shared",
+    env_kwargs: dict = None,
+    n_envs: int = 4,
+    eval_freq: int = 25_000,
+    save_freq: int = 50_000,
+    ent_coef: float = 0.02,
 ):
+    if env_kwargs is None:
+        env_kwargs = {}
+
     os.makedirs(save_dir, exist_ok=True)
     os.makedirs(log_dir, exist_ok=True)
 
-    train_env = DummyVecEnv([
-        make_env(
-            n_obstacles, n_obstacles_range, wall_sliding, offset_scale, formation_coef,
-            proximity_threshold, proximity_penalty_coef,
-            min_drone_separation, min_drone_separation_penalty,
-            i,
-        )
-        for i in range(n_envs)
-    ])
+    train_env = DummyVecEnv([make_env(env_kwargs) for _ in range(n_envs)])
     train_env = VecNormalize(train_env, norm_obs=True, norm_reward=True, clip_obs=10.0)
 
-    eval_env = DummyVecEnv([
-        make_env(
-            n_obstacles, n_obstacles_range, wall_sliding, offset_scale, formation_coef,
-            proximity_threshold, proximity_penalty_coef,
-            min_drone_separation, min_drone_separation_penalty,
-            42,
-        )
-    ])
+    eval_env = DummyVecEnv([make_env(env_kwargs)])
     eval_env = VecNormalize(eval_env, norm_obs=True, norm_reward=False, clip_obs=10.0, training=False)
 
-    model = build_ppo_agent(train_env, os.path.join(log_dir, "tensorboard/"))
+    model = build_agent(train_env, save_dir, os.path.join(log_dir, "tensorboard"), ent_coef=ent_coef)
 
     callbacks = CallbackList([
-        EvalCallback(eval_env, best_model_save_path=os.path.join(save_dir, "best/"),
-                     log_path=os.path.join(log_dir, "eval/"),
-                     eval_freq=max(1, eval_freq // n_envs), n_eval_episodes=10,
-                     deterministic=True, render=False),
-        CheckpointCallback(save_freq=max(1, save_freq // n_envs),
-                          save_path=os.path.join(save_dir, "checkpoints/"),
-                          name_prefix="ppo_hybrid_2"),
+        SyncVecNormalizeCallback(eval_env),
+        EvalCallback(
+            eval_env,
+            best_model_save_path=os.path.join(save_dir, "best"),
+            log_path=os.path.join(log_dir, "eval"),
+            eval_freq=eval_freq,
+            n_eval_episodes=10,
+            deterministic=True,
+            verbose=1,
+        ),
+        CheckpointCallback(
+            save_freq=save_freq,
+            save_path=os.path.join(save_dir, "checkpoints"),
+            name_prefix="ppo_shared",
+        ),
     ])
 
-    print("Training PPO (Hybrid2 - rastgele start/target)...")
+    # OBS_DIM=12 (v2), 4*12=48 obs toplam
+    print("Training PPO (Parameter Sharing + Local Obs, 48 obs → 8 act)...")
     model.learn(total_timesteps=total_timesteps, callback=callbacks, progress_bar=True)
-    model.save(os.path.join(save_dir, "ppo_hybrid_2_final"))
+
+    final_path = os.path.join(save_dir, "ppo_shared_final")
+    model.save(final_path)
     train_env.save(os.path.join(save_dir, "vec_normalize.pkl"))
+
+    print(f"\nBitti! Model: {save_dir}")
+    print(f"  Final: {final_path}.zip")
+    print(f"  Best:  {save_dir}/best/best_model.zip")
     return model, train_env
