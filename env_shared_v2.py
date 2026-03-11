@@ -356,42 +356,25 @@ class DroneSwarmSharedEnv(gym.Env):
         return new_pos, new_vel
 
     def _generate_obstacles(self, n_obs, start_center, target):
+        """
+        Engel yerleşimi: Centralized Hybrid2 env ile birebir aynı mantık.
+
+        - Engeller grid üzerinde [5, grid_size-5] aralığında uniform seçilir.
+        - Hem sürü merkezi (start_center) hem hedef (target) çevresi için güvenlik halkası vardır.
+        - Engeller birbirine çok yaklaşamaz (obstacle_radius * 2.5).
+        """
         obstacles = []
-        min_dist_from_spawn = self.obstacle_radius + self.safety_radius + self.formation_size + 2.0
-        margin = self.obstacle_radius + 1.0
-
-        if self.obstacles_on_route:
-            # Engeller hedefe giden rotada: start-target arasi koridor
-            seg = target - start_center
-            dir_vec = seg / (float(np.linalg.norm(seg)) + 1e-6)
-            perp = np.array([-dir_vec[1], dir_vec[0]], dtype=np.float32)
-            half_width = self.route_corridor_width / 2.0
-            # Rota boyunca start ve target'tan uzak bolge (t: 0.15 - 0.85)
-            t_lo, t_hi = 0.15, 0.85
-        else:
-            dir_vec = perp = None
-
+        center = start_center
         for _ in range(n_obs):
             for _ in range(200):
-                if self.obstacles_on_route and dir_vec is not None:
-                    t = float(self.np_random.uniform(t_lo, t_hi))
-                    along = start_center + t * seg
-                    off = float(self.np_random.uniform(-half_width, half_width))
-                    pos = (along + off * perp).astype(np.float32)
-                    pos = np.clip(pos, margin, self.grid_size - margin)
-                else:
-                    pos = self.np_random.uniform(margin, self.grid_size - margin, size=2).astype(np.float32)
-
-                if (np.linalg.norm(pos - start_center) > min_dist_from_spawn and
-                        np.linalg.norm(pos - target) > min_dist_from_spawn):
-                    ok = True
-                    for existing in obstacles:
-                        if np.linalg.norm(pos - existing) < 2 * self.obstacle_radius + 1.0:
-                            ok = False
-                            break
-                    if ok:
-                        obstacles.append(pos)
-                        break
+                pos = self.np_random.uniform(5.0, self.grid_size - 5.0, size=2).astype(np.float32)
+                if (
+                    np.linalg.norm(pos - center) > 7.0
+                    and np.linalg.norm(pos - target) > 7.0
+                    and not any(np.linalg.norm(pos - o) < self.obstacle_radius * 2.5 for o in obstacles)
+                ):
+                    obstacles.append(pos)
+                    break
         return np.array(obstacles, dtype=np.float32) if obstacles else np.zeros((0, 2), dtype=np.float32)
 
     def _render_pygame(self):
