@@ -1,10 +1,15 @@
 """
-train.py — Shared Policy (Parameter Sharing) Eğitim Giriş Noktası
+train_v2.py — Shared Policy (Parameter Sharing) Eğitim Giriş Noktası
 
 Kullanım (proje kökünden):
-  python shared/train.py
-  python shared/train.py --timesteps 3000000
-  python shared/train.py --timesteps 1000000 --n_obstacles_range "7,9"
+  python train_v2.py
+  python train_v2.py --timesteps 3000000
+  python train_v2.py --timesteps 1000000 --n_obstacles_range "7,9"
+
+v4 env değişiklikleri (`env_shared_v3.py` içinde uygulanır):
+  - Ray 4→8 (dünyaya sabitlenmiş 45° aralıklı) → OBS_DIM 12→16, toplam 64 obs
+  - Başarı: merkez < 3.0 VE her drone < 5.0
+  - Geride drone cezası aktif
 
 4 ayrı model DEĞİL: 1 PPO modeli, her drone aynı ağırlıkları kullanır (parameter sharing).
 """
@@ -16,7 +21,7 @@ import sys
 _here = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _here)
 
-from shared.ppo_agent_shared import train
+from ppo_agent_v2 import train
 
 
 def _next_available_dirs(save_dir: str, log_dir: str):
@@ -106,8 +111,8 @@ def main():
     print(f"Timesteps   : {args.timesteps:,}")
     print(f"Engel       : {'rastgele ' + str(n_obstacles_range)}" if random_obstacles else f"Engel: sabit {args.n_obstacles}")
     print(f"ent_coef    : {args.ent_coef}")
-    # OBS_DIM=12 (v2: +2 ray), 4*12=48 obs, 4*2=8 act
-    print("MİMARİ: 1 model, 48 obs → 8 act (4×12 → 4×2), net [256,256], n_envs={}".format(args.n_envs))
+    # OBS_DIM=16 (v4: 8-ray), 4*16=64 obs, 4*2=8 act
+    print("MİMARİ: 1 model, 64 obs → 8 act (4×16 → 4×2), net [256,256], n_envs={}".format(args.n_envs))
     print("=" * 55)
 
     train(

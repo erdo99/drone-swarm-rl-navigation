@@ -1,15 +1,16 @@
 """
-env_shared.py — Güncel Sürüm
-Hybrid2'den entegre edilen özellikler:
-  - Rastgele başlangıç/hedef konumları (min_start_target_dist)
-  - obstacles_on_route: engeller start→target rotasına yerleştirilebilir
-  - _render_rgb() matplotlib fallback
-  - _get_info() genişletildi
-  - n_obstacles_range her episode yeniden örneklenir (daha güvenli)
+env_shared_v3.py — v3 Sürümü
+v3'ten değişenler:
+  - Ray sayısı 4 → 8 (dünyaya sabitlenmiş, 45° aralıklı: 0,45,90,135,180,225,270,315)
+    Köşegen engelleri de görür; engelin hangi tarafında geçit olduğu daha net.
+  - OBS_DIM 12 → 16 (4 drone × 16 = 64 toplam obs)
+  - Başarı koşulu güncellendi: merkez < 3.0 VE her drone < 5.0 uzakta olmalı
+    (geride bekleyen drone başarıyı engelliyor → grubu birlikte getirmeye zorlar)
+  
 
 Mimari:
   - Parameter Sharing / CTDE
-  - 4 drone × 12 lokal obs = 48 toplam obs
+  - 4 drone × 16 lokal obs = 64 toplam obs
   - 4 drone × 2 hız = 8 toplam act
   - Her drone SADECE kendi lokal obs'unu kullanır → decentralized execution
 """
@@ -26,8 +27,9 @@ class DroneSwarmSharedEnv(gym.Env):
 
     Her drone:
       [pos_x, pos_y, vel_x, vel_y, to_target_x, to_target_y,
-       formation_err_x, formation_err_y, ray_f, ray_r, ray_b, ray_l]
-      → 12 boyutlu lokal gözlem
+       formation_err_x, formation_err_y,
+       ray_0, ray_45, ray_90, ray_135, ray_180, ray_225, ray_270, ray_315]
+      → 16 boyutlu lokal gözlem (v4: ray 4→8, dünyaya sabitlenmiş)
 
     Sürü: 4 drone, kare formasyon
     """
@@ -35,7 +37,7 @@ class DroneSwarmSharedEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 10}
 
     N_DRONES = 4
-    OBS_DIM = 12
+    OBS_DIM = 16  # v4: 8→16 (ray 4→8)
     ACT_DIM = 2
 
     def __init__(
@@ -87,7 +89,7 @@ class DroneSwarmSharedEnv(gym.Env):
             [-s, -s], [s, -s], [-s, s], [s, s],
         ], dtype=np.float32)
 
-        # Obs: 4 drone × 12 = 48
+        # Obs: 4 drone × 16 = 64
         total_obs = self.N_DRONES * self.OBS_DIM
         self.observation_space = spaces.Box(
             low=-1.0, high=1.0, shape=(total_obs,), dtype=np.float32
@@ -226,13 +228,13 @@ class DroneSwarmSharedEnv(gym.Env):
             target_norm = to_target / (self.grid_size * np.sqrt(2) + 1e-6)
             ideal_pos = center + self.formation_offsets[i]
             formation_err = (self.positions[i] - ideal_pos) / self.grid_size
-            rays = self._ray_distances_4dir(i)
+            rays = self._ray_distances_8dir(i)  # v4: 4→8 ray
             drone_obs = np.concatenate([
                 pos_norm,       # 2
                 vel_norm,       # 2
                 target_norm,    # 2
                 formation_err,  # 2
-                rays,           # 4  → toplam 12
+                rays,           # 8  → toplam 16
             ]).astype(np.float32)
             obs_list.append(drone_obs)
         return np.concatenate(obs_list)
@@ -246,41 +248,43 @@ class DroneSwarmSharedEnv(gym.Env):
     # RAY CASTING
     # ------------------------------------------------------------------
 
-    def _ray_distances_4dir(self, drone_idx: int) -> np.ndarray:
+    def _ray_distances_8dir(self, drone_idx: int) -> np.ndarray:
         """
-        4 yönde ray cast: ileri, sağ, geri, sol
-        İleri = hedefe doğru yön
-        """
-        pos = self.positions[drone_idx]
-        to_target = self.target - pos
-        dist = np.linalg.norm(to_target)
-        if dist < 1e-6:
-            forward = np.array([1.0, 0.0], dtype=np.float32)
-        else:
-            forward = (to_target / dist).astype(np.float32)
+        8 yönde ray cast — dünyaya sabitlenmiş, 45° aralıklı.
+        Yönler: 0°(+x), 45°, 90°(+y), 135°, 180°(-x), 225°, 270°(-y), 315°
 
-        right = np.array([forward[1], -forward[0]], dtype=np.float32)
-        directions = [forward, right, -forward, -right]
+        Hedefe göre dönen 4-ray'den farklı olarak bu yönler sabit kalır;
+        model köşegen engelleri de görür ve hangi tarafta geçit olduğunu
+        daha net çıkarabilir.
+        """
+        import math
+        pos = self.positions[drone_idx]
         max_ray = self.grid_size
+        angles_deg = [0, 45, 90, 135, 180, 225, 270, 315]
         results = []
 
-        for direction in directions:
-            min_dist = max_ray
+        for deg in angles_deg:
+            rad = math.radians(deg)
+            direction = np.array([math.cos(rad), math.sin(rad)], dtype=np.float32)
+            min_dist = float(max_ray)
+
             # Duvar mesafesi
             for dim in range(2):
                 if abs(direction[dim]) > 1e-6:
                     d = ((self.grid_size if direction[dim] > 0 else 0.0) - pos[dim]) / direction[dim]
                     min_dist = min(min_dist, max(0.0, float(d)))
+
             # Engel mesafesi
             if self.obstacles is not None and len(self.obstacles) > 0:
                 for obs_pos in self.obstacles:
                     to_obs = obs_pos - pos
-                    proj = np.dot(to_obs, direction)
+                    proj = float(np.dot(to_obs, direction))
                     if proj > 0:
-                        perp = np.linalg.norm(to_obs - proj * direction)
+                        perp = float(np.linalg.norm(to_obs - proj * direction))
                         if perp < self.obstacle_radius:
-                            hit_dist = proj - np.sqrt(max(0.0, self.obstacle_radius**2 - perp**2))
-                            min_dist = min(min_dist, max(0.0, float(hit_dist)))
+                            hit_dist = proj - math.sqrt(max(0.0, self.obstacle_radius**2 - perp**2))
+                            min_dist = min(min_dist, max(0.0, hit_dist))
+
             results.append(min_dist / max_ray)
 
         return np.array(results, dtype=np.float32)
@@ -325,6 +329,11 @@ class DroneSwarmSharedEnv(gym.Env):
         center = self.positions.mean(axis=0)
         dist_to_target = float(np.linalg.norm(center - self.target))
 
+        # Her drone'un hedefe uzaklığı
+        drone_dists = [float(np.linalg.norm(self.positions[i] - self.target))
+                       for i in range(self.N_DRONES)]
+        max_drone_dist = max(drone_dists)
+
         reward = -0.01 * dist_to_target - 0.01
         done = False
         info = {}
@@ -345,13 +354,16 @@ class DroneSwarmSharedEnv(gym.Env):
         reward -= self._proximity_penalty()
         reward -= self._min_separation_penalty()
 
-        # Başarı
-        if dist_to_target < 3.0:
+        # Başarı koşulu:
+        #   - Sürü merkezi hedefe < 3.0 (eski koşul korundu)
+        #   - VE her drone hedefe < 5.0 (geride kalan drone başarıyı engelliyor)
+        if dist_to_target < 3.0 and max_drone_dist < 5.0:
             reward += 1000.0
             done = True
             info["termination"] = "success"
 
         info["dist_to_goal"] = dist_to_target
+        info["max_drone_dist"] = max_drone_dist
         info["formation_error"] = formation_error
         info["n_collisions"] = n_collisions
         info["center_pos"] = center.tolist()

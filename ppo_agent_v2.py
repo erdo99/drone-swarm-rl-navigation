@@ -1,10 +1,10 @@
 """
-ppo_agent_shared.py — Shared Policy PPO Agent
+ppo_agent_v2.py — Shared Policy PPO Agent
 
 MİMARİ:
   - Stable-Baselines3 PPO + VecNormalize
   - Tek model, 4 drone'u kapsıyor
-  - Obs: (48,) = 4 drone × 12 lokal obs  ← v2: OBS_DIM 10→12 (+2 ray)
+  - Obs: (64,) = 4 drone × 16 lokal obs  ← v4: OBS_DIM 12→16 (+4 ray, 8-dir sabit açı)
   - Act: (8,)  = 4 drone × 2 hız
 
 4 ayrı model DEĞİL — 1 model, ağırlıklar paylaşılıyor (parameter sharing).
@@ -39,7 +39,7 @@ class SyncVecNormalizeCallback(BaseCallback):
 
 def make_env(env_kwargs: dict):
     def _init():
-        from env_shared import DroneSwarmSharedEnv
+        from env_shared_v3 import DroneSwarmSharedEnv
         return Monitor(DroneSwarmSharedEnv(**env_kwargs))
     return _init
 
@@ -111,8 +111,8 @@ def train(
         ),
     ])
 
-    # OBS_DIM=12 (v2), 4*12=48 obs toplam
-    print("Training PPO (Parameter Sharing + Local Obs, 48 obs → 8 act)...")
+    # OBS_DIM=16 (v4: 8-ray), 4*16=64 obs toplam
+    print("Training PPO (Parameter Sharing + Local Obs, 64 obs → 8 act)...")
     model.learn(total_timesteps=total_timesteps, callback=callbacks, progress_bar=True)
 
     final_path = os.path.join(save_dir, "ppo_shared_final")
