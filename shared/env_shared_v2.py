@@ -422,3 +422,4 @@ class DroneSwarmSharedEnv(gym.Env):
         """Her drone'un lokal gozlemini ayri ayri dondurur (inference icin)."""
         full_obs = self._get_obs()
         return [full_obs[i * self.OBS_DIM:(i + 1) * self.OBS_DIM] for i in range(self.N_DRONES)]
+
