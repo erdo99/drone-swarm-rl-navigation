@@ -1,10 +1,12 @@
 """
-visualize_pygame.py — Shared Policy modeli görselleştir
+visualize_pygame_v2.py — Shared Policy (V2) modelini görselleştir.
+
+env_shared_v3 ile eğitilmiş modeli, pygame üzerinden 2B gridde izlemek için.
 
 Kullanım (proje kökünden):
-  python shared/visualize_pygame.py --model models_shared/best/best_model
-  python shared/visualize_pygame.py --model models_shared/ppo_shared_final --n_episodes 5 --fps 8
-  python shared/visualize_pygame.py --model models_shared.3/best/best_model --old_env   # eskisi: engeller rastgele grid
+  python visualize_pygame_v2.py --model models_shared/best/best_model
+  python visualize_pygame_v2.py --model models_shared/ppo_shared_final --n_episodes 5 --fps 8
+  python visualize_pygame_v2.py --model models_shared.3/best/best_model --old_env   # eski davranış: engeller rotada değil, gride rastgele
 """
 
 import argparse
@@ -27,7 +29,8 @@ except ImportError:
 
 def visualize(model_path: str, vecnorm_path: str = None,
               n_episodes: int = 5, fps: int = 10, env_kwargs: dict = None):
-    from env_shared import DroneSwarmSharedEnv
+    # V2: env_shared_v3 tabanlı shared policy ile uyumlu
+    from env_shared_v3 import DroneSwarmSharedEnv
 
     if env_kwargs is None:
         env_kwargs = {}

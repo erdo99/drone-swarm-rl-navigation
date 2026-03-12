@@ -16,7 +16,7 @@ import sys
 _here = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _here)
 
-from ppo_agent_shared import train
+from shared.ppo_agent_shared import train
 
 
 def _next_available_dirs(save_dir: str, log_dir: str):
@@ -52,7 +52,12 @@ def main():
     parser.add_argument("--formation_coef", type=float, default=0.3)
     parser.add_argument("--ent_coef", type=float, default=0.02, help="PPO entropy coefficient (varsayılan 0.02)")
     parser.add_argument("--no_obstacles_on_route", action="store_true", help="Engeller rotaya degil grid'e rastgele yerlestirilir")
-    parser.add_argument("--route_corridor_width", type=float, default=12.0)
+    parser.add_argument(
+        "--route_obstacle_ratio",
+        type=float,
+        default=0.6,
+        help="Engellerin ne kadarı start→target rotası koridorunda olsun (0-1)",
+    )
     parser.add_argument("--proximity_threshold", type=float, default=2.0, help="Drone-drone yakınlık eşiği")
     parser.add_argument("--proximity_penalty_coef", type=float, default=0.1, help="Yakınlık ceza katsayısı")
     parser.add_argument("--min_drone_separation", type=float, default=1.5, help="İç içe girme eşiği")
@@ -88,7 +93,7 @@ def main():
         max_steps=args.max_steps,
         formation_coef=args.formation_coef,
         obstacles_on_route=not args.no_obstacles_on_route,
-        route_corridor_width=args.route_corridor_width,
+        route_obstacle_ratio=args.route_obstacle_ratio,
         proximity_threshold=args.proximity_threshold,
         proximity_penalty_coef=args.proximity_penalty_coef,
         min_drone_separation=args.min_drone_separation,

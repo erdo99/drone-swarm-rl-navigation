@@ -1,11 +1,11 @@
 """
-Shared Policy - Zorlu sabit parkur testi (Pygame ile görsel).
+Shared Policy (V2) - Zorlu sabit parkur testi (Pygame ile görsel).
 
-Her episode aynı layout (hard_course_config.py), shared policy modeli ile izlenir.
+env_shared_v3 ile eğitilmiş model + hard_course_config.py layout.
 
 Kullanım (proje kökünden):
-  python shared/test_shared_hard_course_pygame.py --model models_shared/best/best_model
-  python shared/test_shared_hard_course_pygame.py --model models_shared/ppo_shared_final --n_episodes 5 --fps 8
+  python test_hard_course_pygame_v2.py --model models_shared/best/best_model
+  python test_hard_course_pygame_v2.py --model models_shared/ppo_shared_final --n_episodes 5 --fps 8
 """
 
 import argparse

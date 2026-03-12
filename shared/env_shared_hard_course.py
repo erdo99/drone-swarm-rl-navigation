@@ -1,11 +1,10 @@
 """
 Shared hard course env — sabit zorlu parkur (hard_course_config.py) + parameter sharing.
 
-Bu ortam, `env_shared.DroneSwarmSharedEnv` ile aynı observation/action yapısını korur:
-  - Obs: 40 (4 drone × 10 lokal obs)
-  - Act: 8  (4 drone × 2 hız)
+env_shared_v3 ile aynı observation/action yapısı (48 obs, 8 act) — train_v2 ile eğitilen
+model bu ortamda test edilebilir.
 
-Fark: Start/target ve engeller rastgele değil, `hard_course_config.py`'deki
+Fark: Start/target ve engeller rastgele değil, hard_course_config.py'deki
 HARD_START, HARD_TARGET ve HARD_OBSTACLES kullanılır.
 """
 
@@ -21,7 +20,7 @@ import numpy as np
 from typing import Optional, Dict, Tuple
 
 from hard_course_config import HARD_START, HARD_TARGET, HARD_OBSTACLES
-from env_shared import DroneSwarmSharedEnv
+from env_shared_v3 import DroneSwarmSharedEnv
 
 
 class DroneSwarmSharedHardCourseEnv(DroneSwarmSharedEnv):

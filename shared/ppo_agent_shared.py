@@ -39,7 +39,8 @@ class SyncVecNormalizeCallback(BaseCallback):
 
 def make_env(env_kwargs: dict):
     def _init():
-        from env_shared import DroneSwarmSharedEnv
+        # Shared V3 ortamı: route-corridor + min_start_target_dist + proximity
+        from env_shared_v3 import DroneSwarmSharedEnv
         return Monitor(DroneSwarmSharedEnv(**env_kwargs))
     return _init
 
