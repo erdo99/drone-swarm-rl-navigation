@@ -9,6 +9,13 @@ models_hybrid_2/best/*
 models_hybrid_old/
 logs_hybrid_2/
 
+# V2 shared policy modelleri ve logları
+logs_shared/
+models_shared/*
+!models_shared/best/
+models_shared/best/*
+!models_shared/best/best_model.zip
+
 # Python
 __pycache__/
 *.py[cod]
