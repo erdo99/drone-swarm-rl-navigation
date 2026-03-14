@@ -61,6 +61,8 @@ class DroneSwarmSharedEnv(gym.Env):
         heavy_collision_penalty: float = 100.0,   # 2+ drone çarpışınca ek ceza (önceki 20)
         success_reward: float = 2000.0,           # Hedefe ulaşma ödülü (önceki 1000)
         dist_reward_coef: float = 0.02,           # Mesafe azalma bonusu (her step dist_prev - dist_now)
+        obstacle_proximity_threshold: float = 0.15,   # Ray norm: engele < bu değer ise ceza (0.15 = ~7.5 birim)
+        obstacle_proximity_penalty_coef: float = 0.5, # Engel yakınlık ceza katsayısı
         render_mode: Optional[str] = None,
     ):
         super().__init__()
@@ -87,6 +89,8 @@ class DroneSwarmSharedEnv(gym.Env):
         self.heavy_collision_penalty = heavy_collision_penalty
         self.success_reward = success_reward
         self.dist_reward_coef = dist_reward_coef
+        self.obstacle_proximity_threshold = obstacle_proximity_threshold
+        self.obstacle_proximity_penalty_coef = obstacle_proximity_penalty_coef
         self.render_mode = render_mode
 
         s = formation_size / 2
@@ -362,6 +366,8 @@ class DroneSwarmSharedEnv(gym.Env):
         # Drone-drone mesafe cezaları
         reward -= self._proximity_penalty()
         reward -= self._min_separation_penalty()
+        # Engel yakınlık cezası (ray ucu engel yakınında; çarpışmadan önce sinyal)
+        reward -= self._obstacle_proximity_penalty()
 
         # Başarı koşulu: sadece sürü merkezi hedefe < 3.0
         if dist_to_target < 3.0:
@@ -387,6 +393,18 @@ class DroneSwarmSharedEnv(gym.Env):
                 d = float(np.linalg.norm(self.positions[i] - self.positions[j]))
                 if d < thresh:
                     penalty += coef * (thresh - d)
+        return penalty
+
+    def _obstacle_proximity_penalty(self) -> float:
+        """Ray mesafesi küçükse (engele yakın) ceza. Drone-drone etkilemez."""
+        penalty = 0.0
+        thresh = self.obstacle_proximity_threshold
+        coef = self.obstacle_proximity_penalty_coef
+        for i in range(self.N_DRONES):
+            rays = self._ray_distances_8dir(i)  # 8 yön, normalized 0-1
+            min_ray = float(np.min(rays))
+            if min_ray < thresh:
+                penalty += coef * (thresh - min_ray)
         return penalty
 
     def _min_separation_penalty(self) -> float:

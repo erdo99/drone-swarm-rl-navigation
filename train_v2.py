@@ -71,6 +71,8 @@ def main():
     parser.add_argument("--heavy_collision_penalty", type=float, default=100.0, help="2+ drone carpismada ek ceza")
     parser.add_argument("--success_reward", type=float, default=2000.0, help="Hedefe ulasma odulu")
     parser.add_argument("--dist_reward_coef", type=float, default=0.02, help="Mesafe azalma bonus katsayisi")
+    parser.add_argument("--obstacle_proximity_threshold", type=float, default=0.15, help="Ray norm: engele bu mesafeden yakinsa ceza (0.15=~7.5 birim)")
+    parser.add_argument("--obstacle_proximity_penalty_coef", type=float, default=0.5, help="Engel yakinlik ceza katsayisi")
     parser.add_argument("--n_envs", type=int, default=4)
     parser.add_argument("--eval_freq", type=int, default=10_000, help="Her kac step'te eval (varsayilan 10k)")
     parser.add_argument("--save_freq", type=int, default=50_000)
@@ -111,6 +113,8 @@ def main():
         heavy_collision_penalty=args.heavy_collision_penalty,
         success_reward=args.success_reward,
         dist_reward_coef=args.dist_reward_coef,
+        obstacle_proximity_threshold=args.obstacle_proximity_threshold,
+        obstacle_proximity_penalty_coef=args.obstacle_proximity_penalty_coef,
     )
 
     print("=" * 55)
@@ -121,6 +125,7 @@ def main():
     print(f"Engel       : {obs_mode}" if random_obstacles else f"Engel: sabit {args.n_obstacles}")
     print(f"ent_coef    : {args.ent_coef}")
     print(f"collision_penalty: {args.collision_penalty}, heavy: {args.heavy_collision_penalty}, success: {args.success_reward}, dist_coef: {args.dist_reward_coef}")
+    print(f"obstacle_proximity: thresh={args.obstacle_proximity_threshold}, coef={args.obstacle_proximity_penalty_coef}")
     # OBS_DIM=16 (v4: 8-ray), 4*16=64 obs, 4*2=8 act
     print("MİMARİ: 1 model, 64 obs → 8 act (4×16 → 4×2), net [256,256], n_envs={}".format(args.n_envs))
     print("=" * 55)

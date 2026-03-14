@@ -67,6 +67,7 @@ class DroneSwarmSharedHardCourseEnv(DroneSwarmSharedEnv):
         self.positions = (start_center + self.formation_offsets).astype(np.float32)
         self.velocities = np.zeros((self.N_DRONES, 2), dtype=np.float32)
         self.obstacles = HARD_OBSTACLES.astype(np.float32)
+        self._prev_center_dist = float(np.linalg.norm(start_center - self.target))
 
         obs = self._get_obs()
         info = {"dist_to_goal": float(np.linalg.norm(self.positions.mean(axis=0) - self.target))}
