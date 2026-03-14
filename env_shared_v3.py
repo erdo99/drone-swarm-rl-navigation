@@ -4,8 +4,7 @@ v3'ten değişenler:
   - Ray sayısı 4 → 8 (dünyaya sabitlenmiş, 45° aralıklı: 0,45,90,135,180,225,270,315)
     Köşegen engelleri de görür; engelin hangi tarafında geçit olduğu daha net.
   - OBS_DIM 12 → 16 (4 drone × 16 = 64 toplam obs)
-  - Başarı koşulu güncellendi: merkez < 3.0 VE her drone < 5.0 uzakta olmalı
-    (geride bekleyen drone başarıyı engelliyor → grubu birlikte getirmeye zorlar)
+  - Başarı koşulu: sadece sürü merkezi hedefe < 3.0 (her drone < 5 şartı kaldırıldı)
   
 
 Mimari:
@@ -354,10 +353,8 @@ class DroneSwarmSharedEnv(gym.Env):
         reward -= self._proximity_penalty()
         reward -= self._min_separation_penalty()
 
-        # Başarı koşulu:
-        #   - Sürü merkezi hedefe < 3.0 (eski koşul korundu)
-        #   - VE her drone hedefe < 5.0 (geride kalan drone başarıyı engelliyor)
-        if dist_to_target < 3.0 and max_drone_dist < 5.0:
+        # Başarı koşulu: sadece sürü merkezi hedefe < 3.0 (her drone < 5 şartı kaldırıldı)
+        if dist_to_target < 3.0:
             reward += 1000.0
             done = True
             info["termination"] = "success"
