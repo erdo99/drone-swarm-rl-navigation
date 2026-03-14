@@ -67,6 +67,10 @@ def main():
     parser.add_argument("--proximity_penalty_coef", type=float, default=0.1, help="Yakınlık ceza katsayısı")
     parser.add_argument("--min_drone_separation", type=float, default=1.5, help="İç içe girme eşiği")
     parser.add_argument("--min_drone_separation_penalty", type=float, default=15.0, help="İç içe girme cezası")
+    parser.add_argument("--collision_penalty", type=float, default=50.0, help="Her carpisan drone cezasi (varsayilan 50)")
+    parser.add_argument("--heavy_collision_penalty", type=float, default=100.0, help="2+ drone carpismada ek ceza")
+    parser.add_argument("--success_reward", type=float, default=2000.0, help="Hedefe ulasma odulu")
+    parser.add_argument("--dist_reward_coef", type=float, default=0.02, help="Mesafe azalma bonus katsayisi")
     parser.add_argument("--n_envs", type=int, default=4)
     parser.add_argument("--eval_freq", type=int, default=10_000, help="Her kac step'te eval (varsayilan 10k)")
     parser.add_argument("--save_freq", type=int, default=50_000)
@@ -103,6 +107,10 @@ def main():
         proximity_penalty_coef=args.proximity_penalty_coef,
         min_drone_separation=args.min_drone_separation,
         min_drone_separation_penalty=args.min_drone_separation_penalty,
+        collision_penalty=args.collision_penalty,
+        heavy_collision_penalty=args.heavy_collision_penalty,
+        success_reward=args.success_reward,
+        dist_reward_coef=args.dist_reward_coef,
     )
 
     print("=" * 55)
@@ -112,6 +120,7 @@ def main():
     obs_mode = "rastgele " + str(n_obstacles_range) + (", rotada" if args.obstacles_on_route else "")
     print(f"Engel       : {obs_mode}" if random_obstacles else f"Engel: sabit {args.n_obstacles}")
     print(f"ent_coef    : {args.ent_coef}")
+    print(f"collision_penalty: {args.collision_penalty}, heavy: {args.heavy_collision_penalty}, success: {args.success_reward}, dist_coef: {args.dist_reward_coef}")
     # OBS_DIM=16 (v4: 8-ray), 4*16=64 obs, 4*2=8 act
     print("MİMARİ: 1 model, 64 obs → 8 act (4×16 → 4×2), net [256,256], n_envs={}".format(args.n_envs))
     print("=" * 55)

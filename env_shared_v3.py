@@ -57,6 +57,10 @@ class DroneSwarmSharedEnv(gym.Env):
         min_drone_separation: float = 1.5,
         min_drone_separation_penalty: float = 15.0,
         min_start_target_dist: float = 15.0,      # YENİ: start-target minimum mesafe
+        collision_penalty: float = 50.0,          # Her çarpışan drone cezası (önceki 10, hızlı çarpışmayı caydırmak için 50)
+        heavy_collision_penalty: float = 100.0,   # 2+ drone çarpışınca ek ceza (önceki 20)
+        success_reward: float = 2000.0,           # Hedefe ulaşma ödülü (önceki 1000)
+        dist_reward_coef: float = 0.02,           # Mesafe azalma bonusu (her step dist_prev - dist_now)
         render_mode: Optional[str] = None,
     ):
         super().__init__()
@@ -79,6 +83,10 @@ class DroneSwarmSharedEnv(gym.Env):
         self.min_drone_separation = min_drone_separation
         self.min_drone_separation_penalty = min_drone_separation_penalty
         self.min_start_target_dist = min_start_target_dist
+        self.collision_penalty = collision_penalty
+        self.heavy_collision_penalty = heavy_collision_penalty
+        self.success_reward = success_reward
+        self.dist_reward_coef = dist_reward_coef
         self.render_mode = render_mode
 
         s = formation_size / 2
@@ -151,6 +159,7 @@ class DroneSwarmSharedEnv(gym.Env):
         self.target = target
         self.positions = (start_center + self.formation_offsets).astype(np.float32)
         self.velocities = np.zeros((self.N_DRONES, 2), dtype=np.float32)
+        self._prev_center_dist = float(np.linalg.norm(start_center - self.target))
         self.obstacles = self._generate_obstacles(n_obs, start_center, target)
         self.step_count = 0
 
@@ -187,6 +196,7 @@ class DroneSwarmSharedEnv(gym.Env):
                 self.velocities[i] = new_vel.astype(np.float32)
 
         reward, done, info = self._compute_reward(collisions, collision_positions)
+        self._prev_center_dist = info.get("dist_to_goal", float(np.linalg.norm(self.positions.mean(axis=0) - self.target)))
         truncated = self.step_count >= self.max_steps
         obs = self._get_obs()
 
@@ -332,13 +342,15 @@ class DroneSwarmSharedEnv(gym.Env):
         max_drone_dist = max(drone_dists)
 
         reward = -0.01 * dist_to_target - 0.01
+        # Mesafe azalma bonusu (hedefe yaklaşma teşviki)
+        reward += self.dist_reward_coef * (self._prev_center_dist - dist_to_target)
         done = False
         info = {}
 
-        # Çarpışma cezası
-        reward -= 10.0 * n_collisions
+        # Çarpışma cezası (collision_penalty, heavy_collision_penalty)
+        reward -= self.collision_penalty * n_collisions
         if n_collisions >= 2:
-            reward -= 20.0
+            reward -= self.heavy_collision_penalty
             done = True
             info["termination"] = "heavy_collision"
 
@@ -351,9 +363,9 @@ class DroneSwarmSharedEnv(gym.Env):
         reward -= self._proximity_penalty()
         reward -= self._min_separation_penalty()
 
-        # Başarı koşulu: sadece sürü merkezi hedefe < 3.0 (her drone < 5 şartı kaldırıldı)
+        # Başarı koşulu: sadece sürü merkezi hedefe < 3.0
         if dist_to_target < 3.0:
-            reward += 1000.0
+            reward += self.success_reward
             done = True
             info["termination"] = "success"
 
