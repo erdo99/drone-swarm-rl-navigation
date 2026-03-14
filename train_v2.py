@@ -4,7 +4,7 @@ train_v2.py — Shared Policy (Parameter Sharing) Eğitim Giriş Noktası
 Kullanım (proje kökünden):
   python train_v2.py
   python train_v2.py --timesteps 3000000
-  python train_v2.py --timesteps 1000000 --n_obstacles_range "7,9"
+  python train_v2.py --timesteps 1000000 --n_obstacles_range "5,9"
 
 v4 env değişiklikleri (`env_shared_v3.py` içinde uygulanır):
   - Ray 4→8 (dünyaya sabitlenmiş 45° aralıklı) → OBS_DIM 12→16, toplam 64 obs
@@ -50,13 +50,13 @@ def main():
     parser.add_argument("--save_dir", type=str, default="models_shared")
     parser.add_argument("--log_dir", type=str, default="logs_shared")
     parser.add_argument("--n_obstacles", type=int, default=5)
-    parser.add_argument("--n_obstacles_range", type=str, default="7,9")
+    parser.add_argument("--n_obstacles_range", type=str, default="5,9", help="Engel sayisi araligi (old gibi 5-9)")
     parser.add_argument("--no_random", action="store_true", help="Sabit engel sayısı")
     parser.add_argument("--grid_size", type=float, default=50.0)
     parser.add_argument("--max_steps", type=int, default=500)
     parser.add_argument("--formation_coef", type=float, default=0.3)
     parser.add_argument("--ent_coef", type=float, default=0.02, help="PPO entropy coefficient (varsayılan 0.02)")
-    parser.add_argument("--no_obstacles_on_route", action="store_true", help="Engeller rotaya degil grid'e rastgele yerlestirilir")
+    parser.add_argument("--obstacles_on_route", action="store_true", help="Engellerin bir kismi start->target rotasina yerlestirilir (varsayilan: hepsi rastgele)")
     parser.add_argument(
         "--route_obstacle_ratio",
         type=float,
@@ -97,7 +97,7 @@ def main():
         random_obstacles=random_obstacles,
         max_steps=args.max_steps,
         formation_coef=args.formation_coef,
-        obstacles_on_route=not args.no_obstacles_on_route,
+        obstacles_on_route=args.obstacles_on_route,
         route_obstacle_ratio=args.route_obstacle_ratio,
         proximity_threshold=args.proximity_threshold,
         proximity_penalty_coef=args.proximity_penalty_coef,
@@ -109,7 +109,8 @@ def main():
     print("Drone Swarm — Shared Policy (Parameter Sharing)")
     print("=" * 55)
     print(f"Timesteps   : {args.timesteps:,}")
-    print(f"Engel       : {'rastgele ' + str(n_obstacles_range)}" if random_obstacles else f"Engel: sabit {args.n_obstacles}")
+    obs_mode = "rastgele " + str(n_obstacles_range) + (", rotada" if args.obstacles_on_route else "")
+    print(f"Engel       : {obs_mode}" if random_obstacles else f"Engel: sabit {args.n_obstacles}")
     print(f"ent_coef    : {args.ent_coef}")
     # OBS_DIM=16 (v4: 8-ray), 4*16=64 obs, 4*2=8 act
     print("MİMARİ: 1 model, 64 obs → 8 act (4×16 → 4×2), net [256,256], n_envs={}".format(args.n_envs))

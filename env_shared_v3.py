@@ -1,10 +1,8 @@
 """
 env_shared_v3.py — v3 Sürümü
-v3'ten değişenler:
-  - Ray sayısı 4 → 8 (dünyaya sabitlenmiş, 45° aralıklı: 0,45,90,135,180,225,270,315)
-    Köşegen engelleri de görür; engelin hangi tarafında geçit olduğu daha net.
-  - OBS_DIM 12 → 16 (4 drone × 16 = 64 toplam obs)
-  - Başarı koşulu: sadece sürü merkezi hedefe < 3.0 (her drone < 5 şartı kaldırıldı)
+v3 varsayılan: engeller tamamen rastgele (old gibi); obstacles_on_route=True ile rotaya yerleştirilebilir.
+  - Ray 8, OBS_DIM 16 (4×16=64 obs)
+  - Başarı: sadece merkez hedefe < 3.0
   
 
 Mimari:
@@ -45,8 +43,8 @@ class DroneSwarmSharedEnv(gym.Env):
         n_obstacles: int = 5,
         n_obstacles_range: Optional[Tuple[int, int]] = (5, 9),
         random_obstacles: bool = True,
-        obstacles_on_route: bool = True,          # YENİ: engeller rotaya yerleştirilsin mi
-        route_obstacle_ratio: float = 0.6,        # YENİ: engellerin kaçı rotada olsun
+        obstacles_on_route: bool = False,         # False: tümü rastgele (old gibi); True: route_obstacle_ratio kadarı rotada
+        route_obstacle_ratio: float = 0.6,        # obstacles_on_route=True iken: engellerin kaçı rotada
         safety_radius: float = 2.0,
         obstacle_radius: float = 3.0,
         max_speed: float = 2.0,
@@ -399,13 +397,17 @@ class DroneSwarmSharedEnv(gym.Env):
         target: np.ndarray,
     ) -> np.ndarray:
         """
-        obstacles_on_route=True  → engellerin route_obstacle_ratio kadarı
-                                   start→target hattına yerleştirilir
-        obstacles_on_route=False → tümü grid'e rastgele (eski davranış)
+        obstacles_on_route=True: engellerin route_obstacle_ratio kadari start->target rotasinda.
+        obstacles_on_route=False: tumu rastgele (old ile uyumlu: margin 5, start/target 7, engel-engel 2.5*radius).
         """
         obstacles: List[np.ndarray] = []
-        min_clear = self.obstacle_radius + self.safety_radius + self.formation_size + 2.0
-        margin = self.obstacle_radius + 1.0
+        if self.obstacles_on_route:
+            min_clear = self.obstacle_radius + self.safety_radius + self.formation_size + 2.0
+            margin = self.obstacle_radius + 1.0
+        else:
+            # old env ile aynı değerler
+            min_clear = 7.0
+            margin = 5.0
 
         if self.obstacles_on_route:
             n_on_route = max(1, int(round(n_obs * self.route_obstacle_ratio)))
@@ -445,16 +447,14 @@ class DroneSwarmSharedEnv(gym.Env):
                         obstacles.append(pos)
                         break
 
-        # 2) Grid'e rastgele engeller
+        # 2) Grid'e rastgele engeller (obstacles_on_route=False iken old ile aynı: 2.5*radius aralık)
+        obs_spacing = 2.5 * self.obstacle_radius if not self.obstacles_on_route else 2 * self.obstacle_radius + 1.0
         for _ in range(n_random):
             for _ in range(200):
                 pos = self.np_random.uniform(margin, self.grid_size - margin, size=2).astype(np.float32)
                 if (np.linalg.norm(pos - start_center) > min_clear and
                         np.linalg.norm(pos - target) > min_clear):
-                    ok = all(
-                        np.linalg.norm(pos - ex) >= 2 * self.obstacle_radius + 1.0
-                        for ex in obstacles
-                    )
+                    ok = all(np.linalg.norm(pos - ex) >= obs_spacing for ex in obstacles)
                     if ok:
                         obstacles.append(pos)
                         break
@@ -566,9 +566,7 @@ class DroneSwarmSharedEnv(gym.Env):
     # ------------------------------------------------------------------
 
     def _render_rgb(self) -> np.ndarray:
-        """
-        Matplotlib ile render, video kaydetmek veya Jupyter'da göstermek için.
-        """
+        """Matplotlib ile render; video kaydetmek veya Jupyter ortaminda gostermek icin."""
         try:
             import io
             import matplotlib
