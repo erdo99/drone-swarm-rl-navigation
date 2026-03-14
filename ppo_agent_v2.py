@@ -75,7 +75,7 @@ def train(
     log_dir: str = "logs_shared",
     env_kwargs: dict = None,
     n_envs: int = 4,
-    eval_freq: int = 25_000,
+    eval_freq: int = 10_000,
     save_freq: int = 50_000,
     ent_coef: float = 0.02,
 ):

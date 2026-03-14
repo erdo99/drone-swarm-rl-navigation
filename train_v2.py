@@ -68,7 +68,7 @@ def main():
     parser.add_argument("--min_drone_separation", type=float, default=1.5, help="İç içe girme eşiği")
     parser.add_argument("--min_drone_separation_penalty", type=float, default=15.0, help="İç içe girme cezası")
     parser.add_argument("--n_envs", type=int, default=4)
-    parser.add_argument("--eval_freq", type=int, default=25_000)
+    parser.add_argument("--eval_freq", type=int, default=10_000, help="Her kac step'te eval (varsayilan 10k)")
     parser.add_argument("--save_freq", type=int, default=50_000)
     parser.add_argument("--no_auto_version", action="store_true", help="Aynı klasöre yaz (üzerine yaz)")
     args = parser.parse_args()
