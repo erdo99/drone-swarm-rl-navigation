@@ -18,6 +18,10 @@ models_shared/best/*
 !models_shared/best/best_model.zip
 models_shared.*/
 
+# BC+PPO ve sunum (yerel/üretilmiş)
+bc_ppo/
+docs/
+
 # Python
 __pycache__/
 *.py[cod]
